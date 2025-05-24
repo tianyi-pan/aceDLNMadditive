@@ -493,8 +493,12 @@ List aceDLNMadditiveCI(SEXP ptr,
   Eigen::MatrixXd R_E;
   Eigen::VectorXd eta_sample;
   Eigen::MatrixXd eta_sample_mat;
-  Eigen::VectorXd Esurface_sample;
-  Eigen::MatrixXd Esurface_sample_mat;
+
+  Eigen::VectorXd eta_E_sample;
+  Eigen::VectorXd eta_other_sample;
+  Eigen::MatrixXd eta_E_sample_mat;
+  Eigen::MatrixXd eta_other_sample_mat;
+
   std::vector<Eigen::MatrixXd> R_B_inner_list = modelobj.getB_inner_list();
   std::vector<Eigen::VectorXd>  R_knots_f_list = modelobj.getknots_f_list();
   std::vector<Eigen::MatrixXd> R_Zf_list = modelobj.getZf_list();
@@ -507,8 +511,10 @@ List aceDLNMadditiveCI(SEXP ptr,
     R_E.resize(n, M);
     eta_sample.resize(n);
     eta_sample_mat.resize(Rci, n);
-    Esurface_sample.resize(n);
-    Esurface_sample_mat.resize(Rci, n);
+    eta_E_sample.resize(n);
+    eta_other_sample.resize(n);
+    eta_E_sample_mat.resize(Rci, n);
+    eta_other_sample_mat.resize(Rci, n);
   }
 
   // Mode of phi
@@ -593,10 +599,17 @@ List aceDLNMadditiveCI(SEXP ptr,
         for (int j = 0; j < M; j++) {
           R_Bf.segment(j*kEp, kEp) = BsplinevecCon(R_E(ii,j), R_knots_f_list.at(j), 4, R_Zf_list.at(j));
         }
-        Esurface_sample(ii) = R_Bf.dot(R_alpha_f_sample);
-        eta_sample(ii) = Esurface_sample(ii) + R_Xfix.row(ii).dot(R_betaF_sample) + R_Xrand.row(ii).dot(R_betaR_sample) + R_Xoffset(ii);
+        eta_E_sample(ii) = R_Bf.dot(R_alpha_f_sample);
+        eta_other_sample(ii) = R_Xfix.row(ii).dot(R_betaF_sample) + R_Xrand.row(ii).dot(R_betaR_sample);
+        eta_sample(ii) = eta_E_sample(ii) + eta_other_sample(ii) + R_Xoffset(ii);
       }
-      Esurface_sample_mat.row(i) = Esurface_sample.transpose() - Esurface_sample.mean()*Eigen::VectorXd::Ones(n);
+      
+      eta_E_sample = eta_E_sample + eta_other_sample.mean()*Eigen::VectorXd::Ones(n);
+      eta_other_sample = eta_other_sample - eta_other_sample.mean()*Eigen::VectorXd::Ones(n);
+
+      eta_E_sample_mat.row(i) = eta_E_sample.transpose();
+      eta_other_sample_mat.row(i) = eta_other_sample.transpose();
+
       eta_sample_mat.row(i) = eta_sample.transpose();
     }
 
@@ -613,7 +626,8 @@ List aceDLNMadditiveCI(SEXP ptr,
                     Named("betaR_sample") = betaR_sample_mat,
                     Named("betaF_sample") = betaF_sample_mat,
                     Named("eta_sample_mat") = eta_sample_mat,
-                    Named("Esurface_sample_mat") = Esurface_sample_mat,
+                    Named("eta_E_sample_mat") = eta_E_sample_mat,
+                    Named("eta_other_sample_mat") = eta_other_sample_mat,
                     Named("Hessian_inner") = R_he);
 
 }

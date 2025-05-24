@@ -944,18 +944,29 @@ aceDLNMadditive <- function(formula,
   if(exists("Xrand")) eta2 <- eta2 + as.vector(Xrand %*% out$point$betaR)
 
   eta.est <- eta1 + eta2 + Xoffset
-  Esurface.est <- eta1 - mean(eta1)
+  
+  
+
+  eta_E.est <- eta1 + mean(eta2)
+  eta_other.est <- eta2 - mean(eta2)
+
+  out$eta_E = data.frame(est = eta_E.est)
+  out$eta_other = data.frame(est = eta_other.est)
   out$eta = data.frame(est = eta.est)
-  out$Esurface = data.frame(est = Esurface.est)
+
   if(eta) {
     eta.CI <- apply(sampled$eta_sample_mat, 2, function(row.) quantile(row., c((1-CI)/2, 1-(1-CI)/2)))
     out$eta = data.frame(est = eta.est,
                          ll = eta.CI[1,],
                          ul = eta.CI[2,])
-    Esurface.CI <- apply(sampled$Esurface_sample_mat, 2, function(row.) quantile(row., c((1-CI)/2, 1-(1-CI)/2)))
-    out$Esurface = data.frame(est = Esurface.est,
-                              ll = Esurface.CI[1,],
-                              ul = Esurface.CI[2,])
+    eta_E.CI <- apply(sampled$eta_E_sample_mat, 2, function(row.) quantile(row., c((1-CI)/2, 1-(1-CI)/2)))
+    eta_other.CI <- apply(sampled$eta_other_sample_mat, 2, function(row.) quantile(row., c((1-CI)/2, 1-(1-CI)/2)))
+    out$eta_E = data.frame(est = eta_E.est,
+                           ll = eta_E.CI[1,],
+                           ul = eta_E.CI[2,])
+    out$eta_other = data.frame(est = eta_other.est,
+                               ll = eta_other.CI[1,],
+                               ul = eta_other.CI[2,])
   }
   if(verbose){
     runningtime <- as.numeric(difftime(Sys.time(), start, units = "secs"))
