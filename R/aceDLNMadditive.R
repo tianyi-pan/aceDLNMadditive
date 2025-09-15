@@ -278,6 +278,9 @@ aceDLNMadditive <- function(formula,
 
       x <- sXdati[[xx]]
       t <- sXdati$t
+      removed.t <- t[1:maxL] # removed id for the original t
+      t <- t - min(t) + 1 # set t starting at 1
+
       Nti <- length(x) - maxL
       if((kx.per500 > 300) || (interpolate == TRUE)) {
         # if(verbose) cat("Interpolate the exposure process. \n")
@@ -330,7 +333,6 @@ aceDLNMadditive <- function(formula,
 
 
       ### 0.2 Integration
-      removed.t <- t[1:maxL]
       t <- t[-(1:maxL)] # delete the first maxL days
       x <- x[-(1:maxL)] # delete the first maxL days
 
@@ -644,7 +646,7 @@ aceDLNMadditive <- function(formula,
       if(any(is.nan(betaF.init))) betaF.init <- betaF.init.default
       if(model.choice == "with.smooth"){
         betaR.init <- LAMLenv$mod$betaR.mod
-        if(any(is.nan(betaF.init))) betaR.init <- betaR.init.default
+        if(any(is.nan(betaR.init))) betaR.init <- betaR.init.default
 
         LAML.results <- aceDLNMadditiveopt(mod.address,
                                    ad.address,
