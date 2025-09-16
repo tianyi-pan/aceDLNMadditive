@@ -242,11 +242,25 @@ LAMLResult LAML(Model& modelobj, Modelcppad& modelcppadobj) {
     Eigen::VectorXd at0(kE+kbetaR+kbetaF + kwopt + 1 + 2*M + p);
     at0 << alpha_f, phi, betaR, betaF, log_theta, log_smoothing_f, log_smoothing_w, logsmoothing;
 
-    // reverse mode
-    Eigen::VectorXd g_LAML(kE + kwopt + 1 + 2*M + kbetaR+kbetaF + p);
-    g_LAML.setZero();
-    g_LAML = cppadgr.Jacobian(at0);
-    // END reverse mode
+    // // reverse mode
+    // Eigen::VectorXd g_LAML(kE + kwopt + 1 + 2*M + kbetaR+kbetaF + p);
+    // g_LAML.setZero();
+    // g_LAML = cppadgr.Jacobian(at0);
+    // // END reverse mode
+
+    // using reverse mode Reverse(1).
+    // Should be faster than Jacobian when dim(output) is 1.
+    std::vector<double> x(at0.data(), at0.data() + at0.size());
+    // 1) Evaluate f at x (zero-order forward)
+    cppadgr.Forward(0, x);
+    // 2) Seed the single output with 1.0 (since output is scalar)
+    std::vector<double> w(1, 1.0);
+    // 3) One reverse sweep gives the whole gradient
+    std::vector<double> grad = cppadgr.Reverse(1, w);
+    // 4) Map to Eigen
+    Eigen::Map<const Eigen::VectorXd> g_LAML_map(grad.data(), static_cast<Eigen::Index>(grad.size()));
+    Eigen::VectorXd g_LAML = g_LAML_map;
+    // END using reverse mode Reverse(1)
 
 
     // forward mode 1, 2
@@ -488,7 +502,7 @@ List aceDLNMadditiveCI(SEXP ptr,
   Eigen::MatrixXd betaF_sample_mat(Rci, kbetaF);
 
   int n = modelobj.n;
-  
+
   // components for eta
   Eigen::MatrixXd R_E;
   Eigen::VectorXd eta_sample;
@@ -603,7 +617,7 @@ List aceDLNMadditiveCI(SEXP ptr,
         eta_other_sample(ii) = R_Xfix.row(ii).dot(R_betaF_sample) + R_Xrand.row(ii).dot(R_betaR_sample);
         eta_sample(ii) = eta_E_sample(ii) + eta_other_sample(ii) + R_Xoffset(ii);
       }
-      
+
       eta_E_sample = eta_E_sample + eta_other_sample.mean()*Eigen::VectorXd::Ones(n);
       eta_other_sample = eta_other_sample - eta_other_sample.mean()*Eigen::VectorXd::Ones(n);
 
@@ -636,24 +650,24 @@ List aceDLNMadditiveCI(SEXP ptr,
 
 // [[Rcpp::export]]
 List ConditionalAICaceDLNMadditive(SEXP ptr) {
-  
+
   Rcpp::XPtr<Model> modelobj_ptr(ptr);
   Model& modelobj = *modelobj_ptr;
-  
+
   modelobj.prepare_AIC();
   // hessian
   Eigen::MatrixXd R_he;
   R_he = modelobj.he_s_u_mat;
-  // I 
+  // I
   Eigen::MatrixXd R_I;
   R_I = modelobj.I_mat;
-  // 
+  //
   Eigen::MatrixXd mat_AIC = R_he.ldlt().solve(R_I);
 
   double l = modelobj.NegLogL_l;
   // double edf1 = (2 * mat_AIC - mat_AIC * mat_AIC).trace();
-  double edf = mat_AIC.trace(); 
-  // the widely used version of conditional AIC proposed by Hastie and Tibshirani (1990). 
+  double edf = mat_AIC.trace();
+  // the widely used version of conditional AIC proposed by Hastie and Tibshirani (1990).
   // See Wood et al. 2016 JASA
   double AIC = 2.0*l + 2.0*edf;
 
