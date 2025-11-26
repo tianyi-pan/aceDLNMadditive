@@ -6,6 +6,11 @@ using namespace Rcpp;
 #include <random> // for generating samples from standard normal distribution
 
 
+#ifdef _OPENMP
+  #include <omp.h>
+#endif
+
+
 #include "aceDLNMcppadClass.hpp"
 #include "aceDLNMeigenClass.hpp"
 
@@ -455,7 +460,8 @@ List aceDLNMadditiveCI(SEXP ptr,
                const int rseed,
                bool ifeta,
                bool delta,
-               bool verbose) {
+               bool verbose,
+               Rcpp::Nullable<Rcpp::NumericMatrix> R_he_input = R_NilValue) {
 
   Rcpp::XPtr<Model> modelobj_ptr(ptr);
   Model& modelobj = *modelobj_ptr;
@@ -542,7 +548,12 @@ List aceDLNMadditiveCI(SEXP ptr,
   paraSizefull = paraSize;
 
   // Joint
-  R_he = modelobj.he_s_u_mat;
+  // R_he = modelobj.he_s_u_mat;
+  if (R_he_input.isNotNull()) {
+    R_he = Rcpp::as<Eigen::MatrixXd>(R_he_input.get());
+  } else {
+    R_he = modelobj.he_s_u_mat;
+  }
   Eigen::VectorXd R_u_mod(paraSizefull);
   // Hessian
   // cholesky of inverse Hessian
@@ -655,24 +666,328 @@ List ConditionalAICaceDLNMadditive(SEXP ptr) {
   Model& modelobj = *modelobj_ptr;
 
   modelobj.prepare_AIC();
-  // hessian
-  Eigen::MatrixXd R_he;
-  R_he = modelobj.he_s_u_mat;
-  // I
+  
   Eigen::MatrixXd R_I;
   R_I = modelobj.I_mat;
-  //
-  Eigen::MatrixXd mat_AIC = R_he.ldlt().solve(R_I);
+
+  Eigen::MatrixXd IS_mat = modelobj.IS_mat;
+
+  Eigen::MatrixXd Vbeta = IS_mat.ldlt().solve(Eigen::MatrixXd::Identity(IS_mat.rows(), IS_mat.cols())); // solve(IS_mat)
+  Eigen::MatrixXd Khat = modelobj.Khat;
+  
 
   double l = modelobj.NegLogL_l;
-  // double edf1 = (2 * mat_AIC - mat_AIC * mat_AIC).trace();
-  double edf = mat_AIC.trace();
+ 
   // the widely used version of conditional AIC proposed by Hastie and Tibshirani (1990).
   // See Wood et al. 2016 JASA
-  double AIC = 2.0*l + 2.0*edf;
+  Eigen::MatrixXd mat_AIC = Vbeta * R_I;
+  // double edf1 = (2 * mat_AIC - mat_AIC * mat_AIC).trace();
+  double edf_conventional = mat_AIC.trace();
+  double AIC_conventional = 2.0*l + 2.0*edf_conventional;
 
-  return List::create(Named("AIC") = AIC,
-                      Named("l") = -1.0*l,
-                      Named("edf") = edf);
+  // proposed conditional AIC
+  Eigen::MatrixXd mat_cAIC = Khat * Vbeta;
+  double edf_cAIC = mat_cAIC.trace();
+  double AIC_cAIC = 2.0*l + 2.0*edf_cAIC;
+
+  return List::create(Named("l") = -1.0*l,
+                        Named("edf_conventional") = edf_conventional,
+                        Named("AIC_conventional") = AIC_conventional,
+                        Named("edf_cAIC") = edf_cAIC,
+                        Named("AIC_cAIC") = AIC_cAIC
+                        );
+}
+
+
+
+// [[Rcpp::export]]
+List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int nthreads = 1) {
+  Rcpp::XPtr<Model> modelobj_ptr(ptr);
+  Model& modelobj = *modelobj_ptr;
+
+
+  int kw = modelobj.kw;
+  int kwopt = modelobj.kwopt;
+  int kE = modelobj.kE;
+  int kbetaR = modelobj.kbetaR;
+  int kbetaF = modelobj.kbetaF;
+  int M = modelobj.M;
+  int kwp = modelobj.kwp;
+  int kEp = modelobj.kEp;
+  int n = modelobj.n;
+
+
+
+  Eigen::VectorXd alpha_f = modelobj.alpha_f;
+  Eigen::VectorXd phi = modelobj.phi;
+  Eigen::VectorXd betaR = modelobj.betaR;
+  Eigen::VectorXd betaF = modelobj.betaF;
+  double log_theta = modelobj.log_theta;
+
+
+  Eigen::VectorXd beta_mod(kE+kbetaR+kbetaF + kwopt + 1);
+  beta_mod << alpha_f, phi, betaR, betaF, log_theta;
+  Eigen::MatrixXd beta_nei(beta_mod.size(), nei_list.size());
+
+  modelobj.prepare_AIC(); // for gunpen_nei
+  // Eigen::MatrixXd Hpen = modelobj.he_s_u_mat;
+  Eigen::MatrixXd Hpen = modelobj.IS_mat;
+
+
+  Eigen::MatrixXd Kleft = modelobj.Kleft; // dim = (kwopt+kE+kbetaR+kbetaF+1, n)
+  // Eigen::VectorXd gnei(Kleft.rows() - 1);
+  Eigen::VectorXd gnei(Kleft.rows());
+  
+
+  Eigen::VectorXd nei_vec;
+  Eigen::MatrixXd Hunpen_nei;
+  Eigen::MatrixXd Hlambdanei(kE+kbetaR+kbetaF + kwopt + 1, kE+kbetaR+kbetaF + kwopt + 1); // Hpen - Hunpen_nei
+
+  Eigen::VectorXd Dnei(nei_list.size());
+  Eigen::VectorXd Pnei(nei_list.size());
+
+  // Eigen::VectorXd Dfull(nei_list.size());
+  for (size_t i = 0; i < nei_list.size(); i++) {
+    // Dfull(i) = modelobj.NegativeLogLikelihood_l_i(i);
+
+    nei_vec = as<Eigen::VectorXd>(nei_list[i]);
+    // std::cout << "nei_vec" << nei_vec.transpose() << std::endl;
+
+    // compute Hunpen_nei
+    Hunpen_nei = modelobj.prepare_NCV(nei_vec);
+    Hlambdanei = Hpen - Hunpen_nei;
+
+    // compute gunpen_nei from K
+    gnei.setZero();
+    for (size_t j = 0; j < nei_vec.size(); j++) {
+      int j_int = static_cast<int>(nei_vec(j)) - 1; // R to C++ index
+      gnei += Kleft.col(j_int);
+    }
+
+    beta_nei.col(i) = beta_mod - Hlambdanei.completeOrthogonalDecomposition().solve(gnei);
+
+
+    Eigen::VectorXd beta_i = beta_nei.col(i);
+
+    // for NCV loss
+    Dnei(i) = modelobj.get_D_i(beta_i.segment(0, kE), beta_i.segment(kE, kwopt),
+                               beta_i.segment(kE+kwopt, kbetaR), beta_i.segment(kE+kwopt+kbetaR, kbetaF), 
+                               beta_i(kE+kwopt+kbetaR+kbetaF), static_cast<int>(i));
+  }
+
+  int MCR = 1000;
+  Eigen::VectorXd p_i_vec(MCR);
+
+  // single core version
+  if(nthreads == 1) {
+
+    std::mt19937 gen(123);
+    std::normal_distribution<> dist(0, 1);
+
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(Hlambdanei,true); // Both values and vectors
+    Eigen::LLT<Eigen::MatrixXd> cholSolver(Hlambdanei);
+
+    p_i_vec.setZero();
+    Eigen::MatrixXd R_he_u_L_inv;
+    for (size_t i = 0; i < nei_list.size(); i++) {
+      Eigen::VectorXd beta_i = beta_nei.col(i);
+      modelobj.setAlphaF(beta_i.segment(0, kE));
+      modelobj.setPhi(beta_i.segment(kE, kwopt));
+      modelobj.setBetaR(beta_i.segment(kE+kwopt, kbetaR));
+      modelobj.setBetaF(beta_i.segment(kE+kwopt+kbetaR, kbetaF));
+      modelobj.setLogTheta(beta_i(kE+kwopt+kbetaR+kbetaF));
+
+      modelobj.derivative_coef();
+      modelobj.derivative_he();
+      modelobj.derivative_full();
+      modelobj.prepare_AIC();
+
+      nei_vec = as<Eigen::VectorXd>(nei_list[i]);
+      // he_s_u_mat varies with nei_vec
+      Hlambdanei = modelobj.IS_mat - modelobj.prepare_NCV(nei_vec);
+      cholSolver.compute(Hlambdanei);
+      if(cholSolver.info()!=Eigen::Success) {
+        eigvec.compute(Hlambdanei); // Compute eigenvalues and vectors
+        Eigen::VectorXd eigvals = eigvec.eigenvalues().array();
+        Eigen::VectorXd invabseigvals(eigvals.size());
+        for (int ii = 0; ii < eigvals.size(); ii++) invabseigvals(ii) = 1. / max(abs(eigvals(ii)), 1e-3);
+        R_he_u_L_inv = eigvec.eigenvectors() * (invabseigvals.cwiseSqrt().asDiagonal());
+        if(verbose) {
+          std::cout << "Warning: HLambdanei is not positive definite for neighbor " << i + 1 << " . Using eigen decomposition to compute the inverse of Cholesky factor." << std::endl;
+        }
+      } else {
+        Eigen::MatrixXd chol_L = cholSolver.matrixL();
+        R_he_u_L_inv = invertL(chol_L).transpose();
+      }
+
+      Eigen::VectorXd zjoint(kE+kbetaR+kbetaF + kwopt + 1);
+
+
+
+      p_i_vec.setZero();
+      for(int r = 0; r < MCR; r++) {
+        // Jointly sample
+        for (int j = 0; j < kE+kbetaR+kbetaF + kwopt + 1; j++) {
+          zjoint(j) = dist(gen);
+        }
+        Eigen::VectorXd samplejoint = beta_i + R_he_u_L_inv * zjoint;
+        // get alpha_f
+        Eigen::VectorXd R_alpha_f_sample = samplejoint.segment(0, kE);
+
+
+        // get phi
+        Eigen::VectorXd R_phi_sample = samplejoint.segment(kE, kwopt);
+        Eigen::VectorXd R_phiKa_sample = modelobj.K * R_phi_sample + modelobj.a;
+
+
+        // get betaR
+        Eigen::VectorXd R_betaR_sample = samplejoint.segment(kE+kwopt, kbetaR);
+        // get betaF
+        Eigen::VectorXd R_betaF_sample = samplejoint.segment(kE+kwopt+kbetaR, kbetaF);
+        // get log_theta
+        double R_log_theta_sample = samplejoint(kE+kwopt+kbetaR+kbetaF);
+
+        double p_i = modelobj.get_p_i(R_alpha_f_sample, R_phi_sample, R_betaR_sample, R_betaF_sample, R_log_theta_sample, static_cast<int>(i));
+
+        p_i_vec(r) = p_i;
+
+      }
+      // PneiMat.col(i) = p_i_vec;
+      Pnei(i) = p_i_vec.mean();
+
+      // print if is multiple of 100
+      if(verbose) {
+        if ((i + 1) % 100 == 0) {
+          std::cout << "calculate NCV loss and predictive density: for neighbor " << i + 1 << " / " << nei_list.size() << std::endl;
+        }
+      }
+    }
+    // END single core version
+  }
+
+  if(nthreads > 1) {
+
+    
+
+    // openMP version
+    const size_t N = nei_list.size();
+    std::vector<Eigen::VectorXd> nei_vecs(N);
+    for (size_t i = 0; i < N; ++i) nei_vecs[i] = as<Eigen::VectorXd>(nei_list[i]);
+
+    #ifdef _OPENMP
+      omp_set_num_threads(nthreads);
+    #endif
+
+    #ifdef _OPENMP
+      if(verbose) {
+        std::cout << "OpenMP is ON" << std::endl;
+        std::cout << "Using " << nthreads << " threads for NCV loss and predictive density calculation." << std::endl;
+      }
+    #else
+      std::cout << "Warnings: OpenMP is OFF. Install OpenMP to enable parallel processing." << std::endl;
+    #endif
+
+    Eigen::setNbThreads(1);
+
+    #pragma omp parallel for schedule(static)
+    for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(N); ++i) {
+      Model local_model(modelobj);
+
+
+      std::mt19937 gen(123);
+      std::normal_distribution<> dist(0, 1);
+
+
+
+      const Eigen::Ref<const Eigen::VectorXd> beta_i = beta_nei.col(i);
+
+      local_model.setAlphaF(beta_i.segment(0, kE));
+      local_model.setPhi(beta_i.segment(kE, kwopt));
+      local_model.setBetaR(beta_i.segment(kE + kwopt, kbetaR));
+      local_model.setBetaF(beta_i.segment(kE + kwopt + kbetaR, kbetaF));
+      local_model.setLogTheta(beta_i(kE + kwopt + kbetaR + kbetaF));
+
+      local_model.derivative_coef();
+      local_model.derivative_he();
+      local_model.derivative_full();
+      local_model.prepare_AIC();
+
+      Eigen::MatrixXd local_Hlambdanei = local_model.IS_mat - local_model.prepare_NCV(nei_vecs[i]);
+      Eigen::MatrixXd R_he_u_L_inv;
+
+      Eigen::LLT<Eigen::MatrixXd> cholSolver(local_Hlambdanei);
+      if(cholSolver.info()!=Eigen::Success) {
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(local_Hlambdanei,true); // Both values and vectors
+        Eigen::VectorXd eigvals = eigvec.eigenvalues().array();
+        Eigen::VectorXd invabseigvals(eigvals.size());
+        for (int ii = 0; ii < eigvals.size(); ii++) invabseigvals(ii) = 1. / max(abs(eigvals(ii)), 1e-3);
+        R_he_u_L_inv = eigvec.eigenvectors() * (invabseigvals.cwiseSqrt().asDiagonal());
+        // if(verbose) {
+        //   std::cout << "Warning: local_Hlambdanei is not positive definite for neighbor " << i + 1 << " . Using eigen decomposition to compute the inverse of Cholesky factor." << std::endl;
+        // }
+      } else {
+        Eigen::MatrixXd chol_L = cholSolver.matrixL();
+        R_he_u_L_inv = invertL(chol_L).transpose();
+      }
+
+      Eigen::VectorXd zjoint(kE+kbetaR+kbetaF + kwopt + 1);
+      Eigen::VectorXd local_p_i_vec(MCR);
+      local_p_i_vec.setZero();
+
+      for(int r = 0; r < MCR; r++) {
+        // Jointly sample
+        for (int j = 0; j < kE+kbetaR+kbetaF + kwopt + 1; j++) {
+          zjoint(j) = dist(gen);
+        }
+        Eigen::VectorXd samplejoint = beta_i + R_he_u_L_inv * zjoint;
+        // get alpha_f
+        Eigen::VectorXd R_alpha_f_sample = samplejoint.segment(0, kE);
+
+
+        // get phi
+        Eigen::VectorXd R_phi_sample = samplejoint.segment(kE, kwopt);
+        Eigen::VectorXd R_phiKa_sample = local_model.K * R_phi_sample + local_model.a;
+
+        // get betaR
+        Eigen::VectorXd R_betaR_sample = samplejoint.segment(kE+kwopt, kbetaR);
+        // get betaF
+        Eigen::VectorXd R_betaF_sample = samplejoint.segment(kE+kwopt+kbetaR, kbetaF);
+        // get log_theta
+        double R_log_theta_sample = samplejoint(kE+kwopt+kbetaR+kbetaF);
+
+        double p_i = local_model.get_p_i(R_alpha_f_sample, R_phi_sample, R_betaR_sample, R_betaF_sample, R_log_theta_sample, static_cast<int>(i));
+
+        local_p_i_vec(r) = p_i;
+      }
+      Pnei(i) = local_p_i_vec.mean();
+
+      // print if is multiple of 100
+      if(verbose) {
+        if ((i + 1) % 100 == 0) {
+          std::cout << "calculate NCV loss and predictive density: for neighbor " << i + 1 << " / " << nei_list.size() << std::endl;
+        }
+      }
+    }
+
+
+
+
+    // END openMP version
+  }
+
+  if(verbose) {
+    if ((nei_list.size() + 1) % 100 != 0) {
+      std::cout << "calculate NCV loss and predictive density: for neighbor " << nei_list.size() << " / " << nei_list.size() << std::endl;
+    }
+  }
+
+
+
+  return List::create(Named("beta_nei") = beta_nei,
+                      Named("beta_mod") = beta_mod,
+                      Named("Dnei") = Dnei,
+                      Named("Pnei") = Pnei
+                      );
+
 }
 

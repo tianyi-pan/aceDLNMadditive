@@ -43,8 +43,6 @@
 #'   \code{FALSE}.
 #' @param eta whether or not to report the CI for the linear predictor eta =
 #'   log(mu), default \code{FALSE}.
-#' @param hessian whether or not to return the numerically differentiated
-#'   Hessian matrix from \code{optim}, default \code{FALSE}.
 #' @param GD whether or not to use the gradient descent if BFGS fails (max gr >
 #'   GD.grtol), default \code{TRUE}.
 #' @param GD.grtol the tolerance of maximum gradient, default 1. The maximum
@@ -71,6 +69,11 @@ aceDLNMadditive <- function(formula,
                     interpolate = TRUE,
                     kx.per500 = 300,
                     E.max.list, E.min.list,
+                    ifAIC = FALSE,
+                    marginalAIC = FALSE,
+                    ifNCV = FALSE,
+                    kNCV = 0,
+                    NCV.nthreads = 1,
                     conL = FALSE,
                     conLorder = 2,
                     pc = NULL,
@@ -79,7 +82,6 @@ aceDLNMadditive <- function(formula,
                     CI.R = 1000, CI.seed = 123,
                     delta.method = FALSE,
                     eta = FALSE,
-                    hessian = FALSE,
                     GD = TRUE,
                     GD.grtol = 1,
                     check.BFGS = FALSE,
@@ -148,6 +150,7 @@ aceDLNMadditive <- function(formula,
     sXdatlist <- split(as.data.table(sXdat), by = group_name) # use split in data.table to preserve order
 
   } else {
+    group_name <- NULL
     sXdatlist <- list(sXdat)
   }
 
@@ -411,6 +414,25 @@ aceDLNMadditive <- function(formula,
 
   M <- length(B_inner) # the number of exposures. But they are additive in this model.
   ## For mixture exposure, see the package acmeDLNM
+
+
+
+  ### prepare NCV. construct a list for neighborhood of i
+  sXdat$ii <- 1:nrow(sXdat)
+  if(!is.null(group_name)) {
+    NCVsXdat <- split(as.data.table(sXdat), by = group_name)
+  } else {
+    NCVsXdat <- list(as.data.table(sXdat))
+  }
+
+  nei.list <- lapply(NCVsXdat, function(NCVsXdati) {
+    ni <- nrow(NCVsXdati)
+    lapply(1:ni, function(ii)
+      NCVsXdati$ii[seq(max(ii - kNCV, 1), min(ii + kNCV, ni))]
+    )
+  })
+  nei.list <- do.call("c", nei.list)
+
 
   K <- Matrix::bdiag(replicate(M, K, simplify = FALSE))
   K <- as.matrix(K)
@@ -806,6 +828,7 @@ aceDLNMadditive <- function(formula,
   #     if((par.start[i] > (upper.bound[i] - 1)) | (par.start[i] < lower.bound[i])) par.start[i] <- 7
   #   }
   # }
+  hessian = FALSE
 
   par.fn <- par.fix
   par.fn[!par.fix.id] <- par.start[!par.fix.id]
@@ -999,6 +1022,7 @@ aceDLNMadditive <- function(formula,
                    t = t,
                    pc = pc # point constraint
                    )
+  out$data$SSf.list = SSf.list
   out$data$SwI_large = SwI_large
   out$data$SwI = SwI
   out$data$SfI.list = lapply(SSf.list, "[[", "SfI")
@@ -1034,10 +1058,12 @@ aceDLNMadditive <- function(formula,
   out$interpolate <- interpolate
 
   ## check convergence
+  out$Hessian_inner <- sampled$Hessian_inner
   out$eigval_Hessian_inner <- eigen(sampled$Hessian_inner)$values
   ## check convergence of BFGS
-  if(check.BFGS) {
-    if(is.null(opt.LAML$hessian)){
+  if(marginalAIC) {
+      if(verbose) cat("Marginal AIC is not supported in aceDLNMadditive(). \n")
+
       if(verbose) cat("start obtain Hessian matrix. \n")
       par.start[!par.fix.id] <- opt.LAML$par
       H.LAML <- optimHess(par.start[!par.fix.id],
@@ -1053,7 +1079,17 @@ aceDLNMadditive <- function(formula,
                                             }, # gradient function
                         control = list(trace = verbose)
                         )
-      out$hessian <- H.LAML
+      if(verbose) cat("finished! \n")
+
+  } else {
+    H.LAML <- diag(1, length(par.start))
+    if(verbose) {
+      if(check.BFGS) cat("Hessian of LAML is not calculated! Set marginalAIC = TRUE for BGFS convergence check. \n")
+    }
+  }
+  out$H.LAML <- H.LAML
+
+  if(check.BFGS) {
 
       e.H <- eigen(H.LAML)
 
@@ -1066,9 +1102,8 @@ aceDLNMadditive <- function(formula,
       suggest.step <- e.H$vectors %*% diag(1/abs(evals)) %*% t(e.H$vectors) %*% out$env$gr
 
       out$suggest.step <- suggest.step
-      if(verbose) cat("finish obtain Hessian matrix. \n")
       if( sqrt(sum((out$env$gr)^2)) > 0.2) cat("BFGS might not converge. You could try other par.start and rerun the model.")
-    }
+
 
     if(min(out$eigval_Hessian_inner) < 0.0001) {
       warning("The optimization algorithm might not converge. Try rerunning the model with par.start = ", c(out$opt$par - out$suggest.step), "\n")
@@ -1079,10 +1114,25 @@ aceDLNMadditive <- function(formula,
       warning("The optimization algorithm might not converge. Try rerunning the model with par.start = ", c(out$opt$par), "\n")
     }
   }
+  if(ifAIC) {
+    ## AIC
+    AIC <- ConditionalAICaceDLNMadditive(mod.address)
+    out$AIC <- AIC
+  }
 
-  ## AIC
-  AIC <- ConditionalAICaceDLNMadditive(mod.address)
-  out$AIC <- AIC
+  if(ifNCV) {
+    if(verbose) {
+      cat("Compute NCV ... \n")
+      start <- Sys.time()
+    }
+    NCVresults <- NCVaceDLNMadditive(mod.address, nei.list, verbose, NCV.nthreads)
+    out$NCVresults <- NCVresults
 
+    if(verbose){
+      runningtime <- as.numeric(difftime(Sys.time(), start, units = "secs"))
+      cat("Finished computing NCV. It took ", round(runningtime,5), " seconds.\n", sep = "")
+    }
+  }
+  
   structure(out, class = "aceDLNMadditive_fit") # S3 class
 }

@@ -64,8 +64,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // aceDLNMadditiveCI
-List aceDLNMadditiveCI(SEXP ptr, const int Rci, const int rseed, bool ifeta, bool delta, bool verbose);
-RcppExport SEXP _aceDLNMadditive_aceDLNMadditiveCI(SEXP ptrSEXP, SEXP RciSEXP, SEXP rseedSEXP, SEXP ifetaSEXP, SEXP deltaSEXP, SEXP verboseSEXP) {
+List aceDLNMadditiveCI(SEXP ptr, const int Rci, const int rseed, bool ifeta, bool delta, bool verbose, Rcpp::Nullable<Rcpp::NumericMatrix> R_he_input);
+RcppExport SEXP _aceDLNMadditive_aceDLNMadditiveCI(SEXP ptrSEXP, SEXP RciSEXP, SEXP rseedSEXP, SEXP ifetaSEXP, SEXP deltaSEXP, SEXP verboseSEXP, SEXP R_he_inputSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -75,7 +75,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type ifeta(ifetaSEXP);
     Rcpp::traits::input_parameter< bool >::type delta(deltaSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(aceDLNMadditiveCI(ptr, Rci, rseed, ifeta, delta, verbose));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type R_he_input(R_he_inputSEXP);
+    rcpp_result_gen = Rcpp::wrap(aceDLNMadditiveCI(ptr, Rci, rseed, ifeta, delta, verbose, R_he_input));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -87,6 +88,20 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type ptr(ptrSEXP);
     rcpp_result_gen = Rcpp::wrap(ConditionalAICaceDLNMadditive(ptr));
+    return rcpp_result_gen;
+END_RCPP
+}
+// NCVaceDLNMadditive
+List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose, int nthreads);
+RcppExport SEXP _aceDLNMadditive_NCVaceDLNMadditive(SEXP ptrSEXP, SEXP nei_listSEXP, SEXP verboseSEXP, SEXP nthreadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ptr(ptrSEXP);
+    Rcpp::traits::input_parameter< const List >::type nei_list(nei_listSEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    Rcpp::traits::input_parameter< int >::type nthreads(nthreadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(NCVaceDLNMadditive(ptr, nei_list, verbose, nthreads));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -325,8 +340,9 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_aceDLNMadditive_aceDLNMadditivebuild", (DL_FUNC) &_aceDLNMadditive_aceDLNMadditivebuild, 21},
     {"_aceDLNMadditive_aceDLNMadditiveopt", (DL_FUNC) &_aceDLNMadditive_aceDLNMadditiveopt, 11},
-    {"_aceDLNMadditive_aceDLNMadditiveCI", (DL_FUNC) &_aceDLNMadditive_aceDLNMadditiveCI, 6},
+    {"_aceDLNMadditive_aceDLNMadditiveCI", (DL_FUNC) &_aceDLNMadditive_aceDLNMadditiveCI, 7},
     {"_aceDLNMadditive_ConditionalAICaceDLNMadditive", (DL_FUNC) &_aceDLNMadditive_ConditionalAICaceDLNMadditive, 1},
+    {"_aceDLNMadditive_NCVaceDLNMadditive", (DL_FUNC) &_aceDLNMadditive_NCVaceDLNMadditive, 4},
     {"_aceDLNMadditive_BsplinevecCon1st", (DL_FUNC) &_aceDLNMadditive_BsplinevecCon1st, 4},
     {"_aceDLNMadditive_BsplinevecCon2nd", (DL_FUNC) &_aceDLNMadditive_BsplinevecCon2nd, 4},
     {"_aceDLNMadditive_knotindex", (DL_FUNC) &_aceDLNMadditive_knotindex, 2},

@@ -9,12 +9,16 @@ aceDLNMadditiveopt <- function(ptr, ptrcppad, R_alpha_f, R_phi, R_log_theta, R_l
     .Call(`_aceDLNMadditive_aceDLNMadditiveopt`, ptr, ptrcppad, R_alpha_f, R_phi, R_log_theta, R_log_smoothing_f, R_log_smoothing_w, R_betaR, R_betaF, R_logsmoothing, verbose)
 }
 
-aceDLNMadditiveCI <- function(ptr, Rci, rseed, ifeta, delta, verbose) {
-    .Call(`_aceDLNMadditive_aceDLNMadditiveCI`, ptr, Rci, rseed, ifeta, delta, verbose)
+aceDLNMadditiveCI <- function(ptr, Rci, rseed, ifeta, delta, verbose, R_he_input = NULL) {
+    .Call(`_aceDLNMadditive_aceDLNMadditiveCI`, ptr, Rci, rseed, ifeta, delta, verbose, R_he_input)
 }
 
 ConditionalAICaceDLNMadditive <- function(ptr) {
     .Call(`_aceDLNMadditive_ConditionalAICaceDLNMadditive`, ptr)
+}
+
+NCVaceDLNMadditive <- function(ptr, nei_list, verbose = FALSE, nthreads = 1L) {
+    .Call(`_aceDLNMadditive_NCVaceDLNMadditive`, ptr, nei_list, verbose, nthreads)
 }
 
 BsplinevecCon1st <- function(x, t, p, Z) {
