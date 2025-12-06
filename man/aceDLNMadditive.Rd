@@ -20,8 +20,13 @@ aceDLNMadditive(
   kx.per500 = 300,
   E.max.list,
   E.min.list,
+  ifAIC = FALSE,
+  marginalAIC = FALSE,
+  ifNCV = FALSE,
+  kNCV = 0,
+  NCV.nthreads = 1,
   conL = FALSE,
-  conLorder = 1,
+  conLorder = 2,
   pc = NULL,
   par.start,
   par.fix,
@@ -31,7 +36,6 @@ aceDLNMadditive(
   CI.seed = 123,
   delta.method = FALSE,
   eta = FALSE,
-  hessian = FALSE,
   GD = TRUE,
   GD.grtol = 1,
   check.BFGS = FALSE,
@@ -97,9 +101,6 @@ over-dispersion.}
 
 \item{eta}{whether or not to report the CI for the linear predictor eta =
 log(mu), default \code{FALSE}.}
-
-\item{hessian}{whether or not to return the numerically differentiated
-Hessian matrix from \code{optim}, default \code{FALSE}.}
 
 \item{GD}{whether or not to use the gradient descent if BFGS fails (max gr >
 GD.grtol), default \code{TRUE}.}

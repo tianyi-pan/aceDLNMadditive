@@ -4,14 +4,16 @@
 \alias{predict.aceDLNMadditive_fit}
 \title{Title Obtain predictions from the fitted model by aceDLNM}
 \usage{
-\method{predict}{aceDLNMadditive_fit}(object, dat, CI.fit = TRUE, ...)
+\method{predict}{aceDLNMadditive_fit}(object, dat, CI.seed = 123, CI = 0.95, ...)
 }
 \arguments{
 \item{object}{object of class \code{aceDLNM_fit}.}
 
 \item{dat}{the data frame containing the variables.}
 
-\item{CI.fit}{whether or not to report the CI, default \code{TRUE}.}
+\item{CI.seed}{random seed for sampling, default \code{123}.}
+
+\item{CI}{confidence level, default \code{0.95}.}
 
 \item{...}{}
 }

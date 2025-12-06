@@ -1828,8 +1828,8 @@ void PL(Model& modelobj, bool verbose){
     Eigen::VectorXd invabseigvals(paraSize);
     invabseigvals.setZero();
     // double eigval;
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(H,false); // Only values, not vectors
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(H,true); // Both values and vectors
+    // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(H,false); // Only values, not vectors
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(H); // Both values and vectors
 
     double delta = 1.0; // for New Q-Newton method
     double g_norm;
@@ -2047,8 +2047,8 @@ void Inner(Model& modelobj, bool verbose) {
     Eigen::VectorXd invabseigvals(kwopt);
     invabseigvals.setZero();
     // double eigval;
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(H,false); // Only values, not vectors
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(H,true); // Both values and vectors
+    // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(H,false); // Only values, not vectors
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(H); // Both values and vectors
 
     // check range of E
     Eigen::VectorXd phi_long(kw);

@@ -5,15 +5,15 @@
 \title{Title Generate data}
 \usage{
 GenerateData(
-  fEtype,
-  wltype,
+  fEtype.vec,
+  wltype.vec,
   Nt = 1000,
   kx.per500 = 100,
   interpolate = TRUE,
   theta = 10,
   maxL = 14,
-  exposure = NULL,
-  std = TRUE,
+  exposure.list = NULL,
+  std = FALSE,
   verbose = FALSE,
   c1 = NULL,
   c2 = NULL,

@@ -85,6 +85,7 @@ aceDLNMadditive <- function(formula,
                     GD = TRUE,
                     GD.grtol = 1,
                     check.BFGS = FALSE,
+                    maxit.LAML = 150,
                     verbose = TRUE) {
 
 
@@ -850,7 +851,8 @@ aceDLNMadditive <- function(formula,
                   method = "L-BFGS-B",
                   lower = lower.bound[!par.fix.id],
                   upper = upper.bound[!par.fix.id],
-                  control = list(trace = verbose),
+                  control = list(trace = verbose, 
+                                 maxit = maxit.LAML),
                   hessian = hessian
                   )
 
@@ -871,7 +873,8 @@ aceDLNMadditive <- function(formula,
                       method = "L-BFGS-B",
                       lower = lower.bound[!par.fix.id],
                       upper = upper.bound[!par.fix.id],
-                      control = list(trace = verbose),
+                      control = list(trace = verbose,
+                                     maxit = maxit.LAML),
                       hessian = hessian)
   }
 

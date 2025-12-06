@@ -729,6 +729,9 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
   beta_mod << alpha_f, phi, betaR, betaF, log_theta;
   Eigen::MatrixXd beta_nei(beta_mod.size(), nei_list.size());
 
+  modelobj.derivative_coef();
+  modelobj.derivative_he();
+  modelobj.derivative_full();
   modelobj.prepare_AIC(); // for gunpen_nei
   // Eigen::MatrixXd Hpen = modelobj.he_s_u_mat;
   Eigen::MatrixXd Hpen = modelobj.IS_mat;
@@ -784,7 +787,7 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
     std::mt19937 gen(123);
     std::normal_distribution<> dist(0, 1);
 
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(Hlambdanei,true); // Both values and vectors
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(Hlambdanei); // Both values and vectors
     Eigen::LLT<Eigen::MatrixXd> cholSolver(Hlambdanei);
 
     p_i_vec.setZero();
@@ -812,9 +815,9 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
         Eigen::VectorXd invabseigvals(eigvals.size());
         for (int ii = 0; ii < eigvals.size(); ii++) invabseigvals(ii) = 1. / max(abs(eigvals(ii)), 1e-3);
         R_he_u_L_inv = eigvec.eigenvectors() * (invabseigvals.cwiseSqrt().asDiagonal());
-        if(verbose) {
-          std::cout << "Warning: HLambdanei is not positive definite for neighbor " << i + 1 << " . Using eigen decomposition to compute the inverse of Cholesky factor." << std::endl;
-        }
+        // if(verbose) {
+        //   std::cout << "Warning: HLambdanei is not positive definite for neighbor " << i + 1 << " . Using eigen decomposition to compute the inverse of Cholesky factor." << std::endl;
+        // }
       } else {
         Eigen::MatrixXd chol_L = cholSolver.matrixL();
         R_he_u_L_inv = invertL(chol_L).transpose();
@@ -888,10 +891,16 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
     #endif
 
     Eigen::setNbThreads(1);
+    #pragma omp parallel
+    {
+    
+    Model local_model(modelobj);  // one per thread
+    Eigen::VectorXd zjoint(kE+kbetaR+kbetaF + kwopt + 1);
+    Eigen::VectorXd local_p_i_vec(MCR);
 
-    #pragma omp parallel for schedule(static)
+    #pragma omp for schedule(static)
     for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(N); ++i) {
-      Model local_model(modelobj);
+      // Model local_model(modelobj);
 
 
       std::mt19937 gen(123);
@@ -917,7 +926,7 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
 
       Eigen::LLT<Eigen::MatrixXd> cholSolver(local_Hlambdanei);
       if(cholSolver.info()!=Eigen::Success) {
-        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(local_Hlambdanei,true); // Both values and vectors
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigvec(local_Hlambdanei); // Both values and vectors
         Eigen::VectorXd eigvals = eigvec.eigenvalues().array();
         Eigen::VectorXd invabseigvals(eigvals.size());
         for (int ii = 0; ii < eigvals.size(); ii++) invabseigvals(ii) = 1. / max(abs(eigvals(ii)), 1e-3);
@@ -930,8 +939,8 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
         R_he_u_L_inv = invertL(chol_L).transpose();
       }
 
-      Eigen::VectorXd zjoint(kE+kbetaR+kbetaF + kwopt + 1);
-      Eigen::VectorXd local_p_i_vec(MCR);
+      // Eigen::VectorXd zjoint(kE+kbetaR+kbetaF + kwopt + 1);
+      // Eigen::VectorXd local_p_i_vec(MCR);
       local_p_i_vec.setZero();
 
       for(int r = 0; r < MCR; r++) {
@@ -960,7 +969,8 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
         local_p_i_vec(r) = p_i;
       }
       Pnei(i) = local_p_i_vec.mean();
-
+      // std::cout << "Pnei(" << i << ") = " << Pnei(i) << std::endl;
+      // std::cout << "exp(-Dnei(" << i << ")) = " << exp(-Dnei(i)) << std::endl;
       // print if is multiple of 100
       if(verbose) {
         if ((i + 1) % 100 == 0) {
@@ -971,7 +981,7 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
 
 
 
-
+    }
     // END openMP version
   }
 
