@@ -39,6 +39,7 @@ aceDLNMadditive(
   GD = TRUE,
   GD.grtol = 1,
   check.BFGS = FALSE,
+  maxit.LAML = 150,
   verbose = TRUE
 )
 }
