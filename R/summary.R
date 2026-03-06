@@ -59,7 +59,7 @@ summary.aceDLNMadditive_fit <- function(object, E.eval = NULL, others.eval = NUL
     fE.mode <- c(fE.fit(E.eval))
 
     if(!is.null(E0)) {
-      fE0.mode <- fE.mode - c(fE.fit(E0))
+      fE0.mode <- fE.mode - c(fE.fit(E0[i]))
     }
     if(is.null(pc)) {
       fE.mode.mean <- mean(fE.mode)
@@ -117,7 +117,7 @@ summary.aceDLNMadditive_fit <- function(object, E.eval = NULL, others.eval = NUL
           fE.fit <- function(Enew) mgcv::PredictMat(object$smooth$fE[[i]], data = data.frame(E = Enew)) %*% object$data$Zf.list[[i]] %*% Ufpen.list[[i]] %*% alpha_f_sample
         }
         fE.est <- c(fE.fit(E.eval))
-        fE0.est <- fE.est - c(fE.fit(E0))
+        fE0.est <- fE.est - c(fE.fit(E0[i]))
         return(cbind(E.eval, fE0.est, rep(i, length(fE0.est))))
       })
       fE0.results <- do.call(rbind.data.frame, fE0.results)

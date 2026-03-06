@@ -22,7 +22,7 @@ residuals.aceDLNMadditive_fit <- function(object, seed = 123, plot = FALSE,
 
   eta <- object$eta$est
   y <- object$modeldata$y
-  x <- object$modeldata$x
+  # x <- object$modeldata$x
   t <- object$modeldata$t
 
   mu <- exp(eta)
@@ -47,7 +47,7 @@ residuals.aceDLNMadditive_fit <- function(object, seed = 123, plot = FALSE,
   out <- list(res = data.frame(rqr = rqr,
                                y = y[sample.id],
                                mu = mu[sample.id],
-                               x = x[sample.id],
+                              #  x = x[sample.id],
                                t = t[sample.id]),
               p.qq = NULL,
               p.res = NULL
