@@ -158,8 +158,8 @@ predict.aceDLNMadditive_fit <- function(object, dat, CI.seed = 123, CI = 0.95, .
         ## interpolate = TRUE
         ## set points for boundary and auxiliary boundary
         Xsparse <- as(X, "dgCMatrix")
-        alpha_x <- Interpolate(Xsparse, c(rep(0,4), x[1], x, x[length(x)], rep(0,4)))
-        # alpha_x <- Interpolate(Xsparse, c(rep(0,4),x,rep(0,4)))
+        alpha_x <- aceDLNMadditive:::Interpolate(Xsparse, c(rep(0,4), x[1], x, x[length(x)], rep(0,4)))
+        # alpha_x <- aceDLNMadditive:::Interpolate(Xsparse, c(rep(0,4),x,rep(0,4)))
         xt.fit <- "interpolate"
       }
 
@@ -170,9 +170,9 @@ predict.aceDLNMadditive_fit <- function(object, dat, CI.seed = 123, CI = 0.95, .
 
       ### integration
       if(!interpolate) {
-        integral <- Integral(knots_x, knots_w, kx, kw, maxLreal, Zx, Zwnew, t+0.5, alpha_x, FALSE)
+        integral <- aceDLNMadditive:::Integral(knots_x, knots_w, kx, kw, maxLreal, Zx, Zwnew, t+0.5, alpha_x, FALSE)
       } else {
-        integral <- Integral_interpolate(knots_x, knots_w, kx, kw, maxLreal, Zwnew, t+0.5, alpha_x, FALSE)
+        integral <- aceDLNMadditive:::Integral_interpolate(knots_x, knots_w, kx, kw, maxLreal, Zwnew, t+0.5, alpha_x, FALSE)
       }
       
       ## linear predictor s(t) = f(\int w(l) X(t-l) dl) = f (B_inner(t) %*% alpha_w)
