@@ -1,13 +1,3 @@
-#' Compute Rate Ratio
-#'
-#' @param object An object.
-#' @param ... Passed to methods.
-#' @export
-RateRatio <- function(object, ...) {
-  UseMethod("RateRatio")
-}
-
-
 #' Title Rate Ratio for aceDLNMadditive_fit objects
 #'
 #' @param object object of class \code{aceDLNMadditive_fit}.
@@ -15,7 +5,7 @@ RateRatio <- function(object, ...) {
 #'
 #' @return
 #' @importFrom mgcv s
-#' @export
+#' @exportS3Method mDLNM::RateRatio
 RateRatio.aceDLNMadditive_fit <- function(object, x0, x1, verbose = FALSE, ...) {
   ## point estimate
   pc <- object$data$pc

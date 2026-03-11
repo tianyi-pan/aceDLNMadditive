@@ -1,12 +1,3 @@
-#' Compute NCV
-#'
-#' @param object An object.
-#' @param ... Passed to methods.
-#' @export
-NCV <- function(object, ...) {
-  UseMethod("NCV")
-}
-
 #' Title Obtain NCV from the fitted model by aceDLNMadditive
 #'
 #' @param object object of class \code{aceDLNMadditive_fit}.
@@ -15,20 +6,20 @@ NCV <- function(object, ...) {
 #' @param verbose whether to print messages during the process, default \code{FALSE}.
 #' @param ...
 #'
-#' @export
+#' @exportS3Method mDLNM::NCV
 NCV.aceDLNMadditive_fit <- function(object, kNCV = 0, NCV.nthreads = 1, verbose = FALSE, ...) {
 
   dat <- object$inputdata
 
-  
+
 
   smooth = object$formula$smooth
   formula = object$formula$formula
   fe.cont = object$formula$fe.cont
   fe.varying = object$formula$fe.varying
-  
+
   sXformula.list <- as.list(trimws(strsplit(deparse(formula[[3]]), "\\+")[[1]]))
-  
+
   ## change character columns to factor. support random effects defined by mgcv::s(bs = "re")
   chr_col <- which(sapply(dat, class) == "character")
   if(length(chr_col) >= 1) {
@@ -178,7 +169,7 @@ NCV.aceDLNMadditive_fit <- function(object, kNCV = 0, NCV.nthreads = 1, verbose 
       } else {
         integral <- aceDLNMadditive:::Integral_interpolate(knots_x, knots_w, kx, kw, maxLreal, Zwnew, t+0.5, alpha_x, FALSE)
       }
-      
+
       ## linear predictor s(t) = f(\int w(l) X(t-l) dl) = f (B_inner(t) %*% alpha_w)
       ## where B_inner(t) = alpha_x %*% D, dim(D) = c(kx, kw), D_{p,q} = \int b_{xp}(t-l)b_{wq}(l) dl.
       ## b_{xp} is the p-th basis function for X(t)
@@ -339,8 +330,8 @@ NCV.aceDLNMadditive_fit <- function(object, kNCV = 0, NCV.nthreads = 1, verbose 
   Xoffset <- object$data$offset$Xoffset
 
 
-  
-  
+
+
   N <- nrow(sXdat)
   y <- sXdat$y
   t <- sXdat$t
