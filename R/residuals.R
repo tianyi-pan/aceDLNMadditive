@@ -35,8 +35,7 @@ residuals.aceDLNMadditive_fit <- function(object, seed = 123, plot = FALSE,
 
 
   rqr <- mapply(function(yi, mui){
-    yilim <- max(yi-1,0)
-    ai <- pnbinom(yilim, size = theta, mu = mui)
+    ai <- pnbinom(yi-1, size = theta, mu = mui)
     bi <- pnbinom(yi, size = theta, mu = mui)
     ui <- runif(1, min = ai, max = bi)
     ri <- qnorm(ui)
