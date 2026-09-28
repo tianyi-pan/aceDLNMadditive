@@ -336,6 +336,7 @@ private:
   const Vec Xoffset; // offset
   
 public:
+  const bool gaussian;
   const Mat K;
   const Vec a; 
   
@@ -437,9 +438,10 @@ public:
              Vec& log_smoothing_w_,
              Vec& betaR_,
              Vec& betaF_,
-             Vec& logsmoothing_) :
+             Vec& logsmoothing_,
+        bool gaussian_ = false) :
     y(y_), B_inner_list(B_inner_list_), knots_f_list(knots_f_list_), Sw_large(Sw_large_), Sf_list(Sf_list_), Dw(Dw_), Xrand(Xrand_), Xfix(Xfix_), Zf_list(Zf_list_), Xoffset(Xoffset_), r(r_),
-    K(K_), a(a_),
+    K(K_), a(a_), gaussian(gaussian_),
     alpha_f(alpha_f_), phi(phi_), log_theta(log_theta_), log_smoothing_f(log_smoothing_f_), log_smoothing_w(log_smoothing_w_), betaR(betaR_), betaF(betaF_), logsmoothing(logsmoothing_) {
 
       n = y.size(); // sample size
@@ -507,7 +509,7 @@ public:
         }
         eta(i) = Bf_matrix.row(i).dot(alpha_f);
         eta_remaining(i) = Xfix.row(i).dot(betaF) + Xrand.row(i).dot(betaR);
-        mu(i) = exp(eta(i) + eta_remaining(i) + Xoffset(i));
+        mu(i) = gaussian ? eta(i) + eta_remaining(i) + Xoffset(i) : exp(eta(i) + eta_remaining(i) + Xoffset(i));
       }
 
       // Initialize the derivative components and NegativeLogLikelihood
@@ -589,7 +591,7 @@ public:
       }
       eta(i) = Bf_matrix.row(i).dot(alpha_f);
       eta_remaining(i) = Xfix.row(i).dot(betaF) + Xrand.row(i).dot(betaR);
-      mu(i) = exp(eta(i) + eta_remaining(i) + Xoffset(i));
+      mu(i) = gaussian ? eta(i) + eta_remaining(i) + Xoffset(i) : exp(eta(i) + eta_remaining(i) + Xoffset(i));
     }
 
 
@@ -668,7 +670,7 @@ public:
   Vec dlogdensity_dmu () {
     Vec out(n);
     for (int i = 0; i < n; i++) {
-      out(i) = y(i) / mu(i) - (theta + y(i)) / (theta + mu(i));
+      out(i) = gaussian ? (y(i) - mu(i)) / (theta * theta) : y(i) / mu(i) - (theta + y(i)) / (theta + mu(i));
     }
     return out;
   }
@@ -676,7 +678,7 @@ public:
   Vec d2logdensity_dmudmu () {
     Vec out(n);
     for (int i = 0; i < n; i++) {
-      out(i) = - y(i) / pow(mu(i), 2) + (theta + y(i)) / pow(theta + mu(i), 2);
+      out(i) = gaussian ? -1.0 / (theta * theta) : - y(i) / pow(mu(i), 2) + (theta + y(i)) / pow(theta + mu(i), 2);
     }
     return out;
   }
@@ -702,7 +704,7 @@ public:
   Mat dmu_dw () {
     Mat out(n, kw);
     for (int i = 0; i < n; i++) {
-      out.row(i) = dlogmu_dw_mat.row(i) * mu(i);
+      out.row(i) = dlogmu_dw_mat.row(i) * (gaussian ? Scalar(1.0) : mu(i));
     }
     return out;
   }
@@ -788,8 +790,8 @@ public:
     out2.setZero();
     outpen.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i)).transpose() * (Bf_matrix.row(i)) * mu(i) * mu(i);
-      out2 += dlogdensity_dmu_vec(i) * (mu(i) * Bf_matrix.row(i).transpose() * Bf_matrix.row(i));
+      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i)).transpose() * (Bf_matrix.row(i)) * (gaussian ? Scalar(1.0) : mu(i)) * (gaussian ? Scalar(1.0) : mu(i));
+      if(!gaussian) out2 += dlogdensity_dmu_vec(i) * (mu(i) * Bf_matrix.row(i).transpose() * Bf_matrix.row(i));
     }
 
     for (int i = 0; i < M; i++) outpen.block(i*kEp, i*kEp, kEp, kEp) = smoothing_f(i)*Sf_list.at(i);
@@ -806,8 +808,8 @@ public:
     out2.setZero();
     Ones.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += d2logdensity_dmudmu_vec(i) * (Xrand.row(i)).transpose() * (Xrand.row(i)) * mu(i) * mu(i);
-      out2 += dlogdensity_dmu_vec(i) * (mu(i) * Xrand.row(i).transpose() * Xrand.row(i));
+      out1 += d2logdensity_dmudmu_vec(i) * (Xrand.row(i)).transpose() * (Xrand.row(i)) * (gaussian ? Scalar(1.0) : mu(i)) * (gaussian ? Scalar(1.0) : mu(i));
+      if(!gaussian) out2 += dlogdensity_dmu_vec(i) * (mu(i) * Xrand.row(i).transpose() * Xrand.row(i));
     }
     int begin = 0;
     for (int i = 0; i < p; i++) {
@@ -827,8 +829,8 @@ public:
     out1.setZero();
     out2.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += d2logdensity_dmudmu_vec(i) * (Xfix.row(i)).transpose() * (Xfix.row(i)) * mu(i) * mu(i);
-      out2 += dlogdensity_dmu_vec(i) * (mu(i) * Xfix.row(i).transpose() * Xfix.row(i));
+      out1 += d2logdensity_dmudmu_vec(i) * (Xfix.row(i)).transpose() * (Xfix.row(i)) * (gaussian ? Scalar(1.0) : mu(i)) * (gaussian ? Scalar(1.0) : mu(i));
+      if(!gaussian) out2 += dlogdensity_dmu_vec(i) * (mu(i) * Xfix.row(i).transpose() * Xfix.row(i));
     }
     return - out1 - out2;
   }
@@ -846,7 +848,8 @@ public:
       tmp.setZero();
       for (int j = 0; j < M; j++) tmp.block(j*kwp, j*kwp, kwp, kwp) = (BsplinevecCon2nd(E(i, j), knots_f_list.at(j), 4, Zf_list.at(j)).dot(alpha_f.segment(j*kEp, kEp))) * B_inner_list.at(j).row(i).transpose() * B_inner_list.at(j).row(i);
       out1 += d2logdensity_dmudmu_vec(i) * dmu_dw_mat.row(i).transpose() * dmu_dw_mat.row(i);
-      out2 += dlogdensity_dmu_vec(i) * (mu(i) * dlogmu_dw_mat.row(i).transpose() * dlogmu_dw_mat.row(i) + mu(i) * tmp);
+      if(gaussian) out2 += dlogdensity_dmu_vec(i) * tmp;
+      else out2 += dlogdensity_dmu_vec(i) * (mu(i) * dlogmu_dw_mat.row(i).transpose() * dlogmu_dw_mat.row(i) + mu(i) * tmp);
     }
     for (int j = 0; j < M; j++) outpen.block(j*kwp, j*kwp, kwp, kwp) = smoothing_w(j)*Sw_large;
     return - out1 - out2 + outpen;
@@ -881,8 +884,9 @@ public:
     for (int i = 0; i < n; i++) {
       tmp.setZero();
       for (int j = 0; j < M; j++) tmp.block(j*kEp, j*kwp, kEp, kwp) = BsplinevecCon1st(E(i, j), knots_f_list.at(j), 4, Zf_list.at(j)) * B_inner_list.at(j).row(i);
-      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i) * mu(i)).transpose() * dmu_dw_mat.row(i);
-      out2 += dlogdensity_dmu_vec(i) * (mu(i) * Bf_matrix.row(i).transpose() * dlogmu_dw_mat.row(i) + mu(i)*tmp);
+      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i) * (gaussian ? Scalar(1.0) : mu(i))).transpose() * dmu_dw_mat.row(i);
+      if(gaussian) out2 += dlogdensity_dmu_vec(i) * tmp;
+      else out2 += dlogdensity_dmu_vec(i) * (mu(i) * Bf_matrix.row(i).transpose() * dlogmu_dw_mat.row(i) + mu(i)*tmp);
     }
     return - out1 - out2;
   }
@@ -897,8 +901,8 @@ public:
     out1.setZero();
     out2.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i)).transpose() * (Xfix.row(i)) * mu(i) * mu(i);
-      out2 += dlogdensity_dmu_vec(i) * Bf_matrix.row(i).transpose() * (Xfix.row(i) * mu(i));
+      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i)).transpose() * (Xfix.row(i)) * (gaussian ? Scalar(1.0) : mu(i)) * (gaussian ? Scalar(1.0) : mu(i));
+      if(!gaussian) out2 += dlogdensity_dmu_vec(i) * Bf_matrix.row(i).transpose() * (Xfix.row(i) * mu(i));
     }
     return - out1 - out2;
   }
@@ -908,8 +912,8 @@ public:
     out1.setZero();
     out2.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i)).transpose() * (Xrand.row(i)) * mu(i) * mu(i);
-      out2 += dlogdensity_dmu_vec(i) * Bf_matrix.row(i).transpose() * (Xrand.row(i) * mu(i));
+      out1 += d2logdensity_dmudmu_vec(i) * (Bf_matrix.row(i)).transpose() * (Xrand.row(i)) * (gaussian ? Scalar(1.0) : mu(i)) * (gaussian ? Scalar(1.0) : mu(i));
+      if(!gaussian) out2 += dlogdensity_dmu_vec(i) * Bf_matrix.row(i).transpose() * (Xrand.row(i) * mu(i));
     }
     return - out1 - out2;
   }
@@ -919,8 +923,8 @@ public:
     out1.setZero();
     out2.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += dw_dphi_mat.transpose() * (d2logdensity_dmudmu_vec(i) * dmu_dw_mat.row(i).transpose() * (Xrand.row(i) * mu(i)));
-      out2 += dw_dphi_mat.transpose() * (dlogdensity_dmu_vec(i) * dlogmu_dw_mat.row(i).transpose() * (Xrand.row(i) * mu(i)));
+      out1 += dw_dphi_mat.transpose() * (d2logdensity_dmudmu_vec(i) * dmu_dw_mat.row(i).transpose() * (Xrand.row(i) * (gaussian ? Scalar(1.0) : mu(i))));
+      if(!gaussian) out2 += dw_dphi_mat.transpose() * (dlogdensity_dmu_vec(i) * dlogmu_dw_mat.row(i).transpose() * (Xrand.row(i) * mu(i)));
     }
     return - out1 - out2;
   }
@@ -930,8 +934,8 @@ public:
     out1.setZero();
     out2.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += dw_dphi_mat.transpose() * (d2logdensity_dmudmu_vec(i) * dmu_dw_mat.row(i).transpose() * (Xfix.row(i) * mu(i)));
-      out2 += dw_dphi_mat.transpose() * (dlogdensity_dmu_vec(i) * dlogmu_dw_mat.row(i).transpose() * (Xfix.row(i) * mu(i)));
+      out1 += dw_dphi_mat.transpose() * (d2logdensity_dmudmu_vec(i) * dmu_dw_mat.row(i).transpose() * (Xfix.row(i) * (gaussian ? Scalar(1.0) : mu(i))));
+      if(!gaussian) out2 += dw_dphi_mat.transpose() * (dlogdensity_dmu_vec(i) * dlogmu_dw_mat.row(i).transpose() * (Xfix.row(i) * mu(i)));
     }
     return - out1 - out2;
   }
@@ -941,8 +945,8 @@ public:
     out1.setZero();
     out2.setZero();
     for (int i = 0; i < n; i++) {
-      out1 += d2logdensity_dmudmu_vec(i) * (Xrand.row(i)).transpose() * (Xfix.row(i)) * mu(i) * mu(i);
-      out2 += dlogdensity_dmu_vec(i) * Xrand.row(i).transpose() * (Xfix.row(i) * mu(i));
+      out1 += d2logdensity_dmudmu_vec(i) * (Xrand.row(i)).transpose() * (Xfix.row(i)) * (gaussian ? Scalar(1.0) : mu(i)) * (gaussian ? Scalar(1.0) : mu(i));
+      if(!gaussian) out2 += dlogdensity_dmu_vec(i) * Xrand.row(i).transpose() * (Xfix.row(i) * mu(i));
     }
     return - out1 - out2;
   }

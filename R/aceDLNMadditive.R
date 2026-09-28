@@ -48,6 +48,9 @@
 #' @param GD.grtol the tolerance of maximum gradient, default 1. The maximum
 #'   numbers of steps for gradient descent is 2. But the BFGS converges in most
 #'   cases.
+#' @param family outcome family: \code{"nb"} (default) for negative binomial
+#'   outcomes with a log link, or \code{"gaussian"} for Gaussian outcomes with
+#'   an identity link and variance theta squared.
 #' @param verbose whether or not to print the progress and diagnostic
 #'   information, such as the gradients and function values in inner and middle
 #'   optimizations.
@@ -86,7 +89,11 @@ aceDLNMadditive <- function(formula,
                     GD.grtol = 1,
                     check.BFGS = FALSE,
                     maxit.LAML = 150,
-                    verbose = TRUE) {
+                    verbose = TRUE, family = "nb") {
+
+  if(!is.character(family) || length(family) != 1L || is.na(family) ||
+     !family %in% c("nb", "gaussian")) stop('family must be "nb" or "gaussian".')
+  gaussian <- identical(family, "gaussian")
 
 
   formula.list <- list(formula = formula,
@@ -518,7 +525,7 @@ aceDLNMadditive <- function(formula,
   ### END following https://github.com/awstringer1/mam/blob/master/R/mam.R #######
 
   ## 2.4 offset
-  if(!is.null(offset)) {
+  if(!gaussian && !is.null(offset)) {
     Xoffset.original <- as.vector(stats::model.matrix(offset,data=sXdat)[,-1,drop=F])
     Xoffset.original.min <- min(Xoffset.original)
     Xoffset <- Xoffset.original - Xoffset.original.min
@@ -536,7 +543,7 @@ aceDLNMadditive <- function(formula,
   t <- sXdat$t
 
   if(missingArg(upper.bound)) upper.bound <- c(10, rep(20, M), rep(20, M))
-  lower.bound <- c(-2,rep(-8, M),rep(-8, M))
+  lower.bound <- c(if(gaussian) -4 else -2,rep(-8, M),rep(-8, M))
 
   ## f functions
   SSf.list <- lapply(1:M, function(i) {
@@ -729,7 +736,7 @@ aceDLNMadditive <- function(formula,
                                 alpha_f.init,
                                 phi.init,
                                 log_theta.given, log_smoothing_f.given, log_smoothing_w.given,
-                                betaR.init, betaF.init, logsmoothing.given)
+                                betaR.init, betaF.init, logsmoothing.given, gaussian)
     }
 
     mod.build
@@ -798,17 +805,33 @@ aceDLNMadditive <- function(formula,
         }
         formula.mgcv <- as.formula(formula.mgcv)
         suppressWarnings(
-          mod.mgcv <- mgcv::bam(formula.mgcv, data = sXdat, family = nb(), discrete = TRUE)
+          mod.mgcv <- mgcv::bam(formula.mgcv, data = sXdat, family = if(gaussian) stats::gaussian(link = "identity") else nb(), discrete = TRUE)
         )
-        par.start[1] <- max(family(mod.mgcv)$getTheta(), log(2*y.mean)) # choose a larger theta if theta from bam() is smaller than 2*mean(y). Var = mu + mu^2/theta. i.e. init. var = 1.5*mu
-        par.start[seq_len(M)+1] <- log(mod.mgcv$sp)[seq_len(M)]
-        par.start[1+M + seq_len(M)] <- rep(6, M)
-        if(length(par.start) > (1+2*M)) par.start[(2+2*M):length(par.start)] <- log(mod.mgcv$sp)[-(seq_len(M))]
-        if(par.start[1] > 7) par.start[1] <- 7 # do not set a huge log(theta)
+        if(gaussian) {
+          sigma2 <- mod.mgcv$sig2
+          if(!is.finite(sigma2) || sigma2 <= 0) stop("Invalid Gaussian variance from mgcv::bam.")
+          log.precision <- log(mod.mgcv$sp) - log(sigma2)
+          par.start[1] <- 0.5 * log(sigma2)
+          par.start[seq_len(M)+1] <- log.precision[seq_len(M)]
+          par.start[1+M + seq_len(M)] <- rep(6, M)
+          if(length(par.start) > (1+2*M)) par.start[(2+2*M):length(par.start)] <- log.precision[-seq_len(M)]
+          if(par.start[1] > 7) par.start[1] <- 7
+          if(par.start[1] < -2) par.start[1] <- 0
+          par.start[seq_len(M)+1] <- pmin(par.start[seq_len(M)+1], 11)
+          for (i in 2:length(par.start)) {
+            if(par.start[i] > (upper.bound[i] - 1) || par.start[i] < lower.bound[i]) par.start[i] <- 7
+          }
+        } else {
+          par.start[1] <- max(family(mod.mgcv)$getTheta(), log(2*y.mean)) # choose a larger theta if theta from bam() is smaller than 2*mean(y). Var = mu + mu^2/theta. i.e. init. var = 1.5*mu
+          par.start[seq_len(M)+1] <- log(mod.mgcv$sp)[seq_len(M)]
+          par.start[1+M + seq_len(M)] <- rep(6, M)
+          if(length(par.start) > (1+2*M)) par.start[(2+2*M):length(par.start)] <- log(mod.mgcv$sp)[-(seq_len(M))]
+          if(par.start[1] > 7) par.start[1] <- 7 # do not set a huge log(theta)
 
-        for (i in 1:length(par.start)) {
-          if(par.start[i] > (upper.bound[i] - 1)) par.start[i] <- upper.bound[i]-1
-          if(par.start[i] < lower.bound[i]) par.start[i] <- lower.bound[i]+11
+          for (i in 1:length(par.start)) {
+            if(par.start[i] > (upper.bound[i] - 1)) par.start[i] <- upper.bound[i]-1
+            if(par.start[i] < lower.bound[i]) par.start[i] <- lower.bound[i]+11
+          }
         }
         if(verbose) cat("Use results from mgcv::bam as the initial guess for BFGS. \n ")
       },
@@ -1137,5 +1160,6 @@ aceDLNMadditive <- function(formula,
     }
   }
   
+  out$family <- family
   structure(out, class = "aceDLNMadditive_fit") # S3 class
 }

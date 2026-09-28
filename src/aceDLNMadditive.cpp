@@ -323,7 +323,8 @@ List aceDLNMadditivebuild(const Eigen::VectorXd R_y,
                    Eigen::VectorXd R_log_smoothing_w,
                    Eigen::VectorXd R_betaR,
                    Eigen::VectorXd R_betaF,
-                   Eigen::VectorXd R_logsmoothing) {
+                   Eigen::VectorXd R_logsmoothing,
+                   bool gaussian = false) {
     // convert
     Vec y = R_y.cast<Scalar>();
     std::vector<Mat> B_inner_list = convertListToVectorMat(R_B_inner_list);
@@ -359,14 +360,14 @@ List aceDLNMadditivebuild(const Eigen::VectorXd R_y,
     Modelcppad* modelcppadobj_ptr = new Modelcppad(y, B_inner_list, knots_f_list, Sw_large, Sf_list, Dw,
                                                    Xrand, Xfix, Zf_list, Xoffset, r, K, a,
                                                    alpha_f, phi, log_theta, log_smoothing_f, log_smoothing_w,
-                                                   betaR, betaF, logsmoothing);
+                                                   betaR, betaF, logsmoothing, gaussian);
 
     Rcpp::XPtr<Modelcppad> ptrcppad(modelcppadobj_ptr);
 
     Model* modelobj_ptr = new Model(R_y, R_B_inner_Eigen_list, R_knots_f_Eigen_list, R_Sw_large, R_Sf_Eigen_list, R_Dw,
                                     R_Xrand, R_Xfix, R_Zf_Eigen_list, R_Xoffset, R_r, R_K, R_a,
                                     R_alpha_f, R_phi, R_log_theta, R_log_smoothing_f, R_log_smoothing_w,
-                                    R_betaR, R_betaF, R_logsmoothing);
+                                    R_betaR, R_betaF, R_logsmoothing, gaussian);
     Rcpp::XPtr<Model> ptr(modelobj_ptr);
 
 

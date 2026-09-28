@@ -19,10 +19,13 @@ GenerateData(
   c2 = NULL,
   wl.set = NULL,
   fE.set = NULL,
-  other
+  other,
+  family = "nb"
 )
 }
 \arguments{
+\item{family}{Outcome family, \code{"nb"} (default) or \code{"gaussian"}.
+Gaussian uses theta as SD and multiplies built-in exposure functions by 5.}
 \item{kw}{}
 }
 \description{

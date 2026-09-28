@@ -2,7 +2,7 @@
 % Please edit documentation in R/residuals.R
 \name{residuals.aceDLNMadditive_fit}
 \alias{residuals.aceDLNMadditive_fit}
-\title{Title Randomized Quantile Residuals}
+\title{Title Quantile Residuals}
 \usage{
 \method{residuals}{aceDLNMadditive_fit}(
   object,
@@ -32,7 +32,8 @@ observations is larger than nsample, default \code{1e4}.}
 a list containing the randomized quantile residuals and the plots.
 }
 \description{
-Title Randomized Quantile Residuals
+Gaussian residuals are standardized by the fitted SD; NB residuals are randomized.
+Title Quantile Residuals
 }
 \references{
 Dunn, Peter K., and Gordon K. Smyth. \dQuote{Randomized quantile

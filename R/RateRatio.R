@@ -1,5 +1,6 @@
 #' Title Rate Ratio for aceDLNMadditive_fit objects
 #'
+#' Rate ratios are available for NB models only.
 #' @param object object of class \code{aceDLNMadditive_fit}.
 #' @param verbose whether to print messages during the process, default \code{FALSE}.
 #'
@@ -7,6 +8,7 @@
 #' @importFrom mgcv s
 #' @exportS3Method mDLNM::RateRatio
 RateRatio.aceDLNMadditive_fit <- function(object, x0, x1, verbose = FALSE, ...) {
+  if(identical(object$family, "gaussian")) stop("Rate ratios are not defined for Gaussian identity-link models.")
   ## point estimate
   pc <- object$data$pc
   alpha_w.list <- object$point$alpha_w.list

@@ -1,4 +1,6 @@
-#' Title Randomized Quantile Residuals
+#' Title Quantile Residuals
+#'
+#' Gaussian residuals are standardized by the fitted SD; NB residuals are randomized.
 #'
 #' @param object object of class \code{aceDLNM_fit}.
 #' @param seed random seed, default 123.
@@ -12,6 +14,8 @@
 #' @import dplyr
 #' @import ggplot2
 #' @return a list containing the randomized quantile residuals and the plots.
+#'   Gaussian residuals are (y - mu) / theta, with theta the fitted SD;
+#'   no quantile randomization is used.
 #' @references Dunn, Peter K., and Gordon K. Smyth. \dQuote{Randomized quantile
 #'   residuals}. Journal of Computational and graphical statistics 5.3 (1996):
 #'   236-244.
@@ -25,7 +29,8 @@ residuals.aceDLNMadditive_fit <- function(object, seed = 123, plot = FALSE,
   # x <- object$modeldata$x
   t <- object$modeldata$t
 
-  mu <- exp(eta)
+  gaussian <- identical(object$family, "gaussian")
+  mu <- if(gaussian) eta else exp(eta)
   theta <- exp(object$point$log_theta) # theta
   if(length(y) > nsample) {
     sample.id <- sample(1:length(y), nsample)
@@ -34,14 +39,18 @@ residuals.aceDLNMadditive_fit <- function(object, seed = 123, plot = FALSE,
   }
 
 
-  rqr <- mapply(function(yi, mui){
-    ai <- pnbinom(yi-1, size = theta, mu = mui)
-    bi <- pnbinom(yi, size = theta, mu = mui)
-    ui <- runif(1, min = ai, max = bi)
-    ri <- qnorm(ui)
-    return(ri)
-  },
-  y[sample.id], mu[sample.id])
+  if(gaussian) {
+    rqr <- (y[sample.id] - mu[sample.id]) / theta
+  } else {
+    rqr <- mapply(function(yi, mui){
+      ai <- pnbinom(yi-1, size = theta, mu = mui)
+      bi <- pnbinom(yi, size = theta, mu = mui)
+      ui <- runif(1, min = ai, max = bi)
+      ri <- qnorm(ui)
+      return(ri)
+    },
+    y[sample.id], mu[sample.id])
+  }
 
   out <- list(res = data.frame(rqr = rqr,
                                y = y[sample.id],
@@ -57,7 +66,7 @@ residuals.aceDLNMadditive_fit <- function(object, seed = 123, plot = FALSE,
   p.res <- ggplot(data.frame(t =t[sample.id], xx = rqr), aes(x = t, y = xx)) +
       geom_point() + geom_hline(yintercept = 0) +
       scale_x_continuous(breaks = seq(min(out$res$t), max(out$res$t), by = round((max(out$res$t) - min(out$res$t))/50))) +
-      xlab("Time") + ylab("Randomized Quantile Residuals") + theme_bw() +
+      xlab("Time") + ylab(if(gaussian) "Quantile Residuals" else "Randomized Quantile Residuals") + theme_bw() +
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
   if(curve) p.res <- p.res + stat_smooth(method = "gam")
   out$p.res <- p.res

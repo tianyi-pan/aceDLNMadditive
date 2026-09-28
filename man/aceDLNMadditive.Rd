@@ -40,10 +40,13 @@ aceDLNMadditive(
   GD.grtol = 1,
   check.BFGS = FALSE,
   maxit.LAML = 150,
-  verbose = TRUE
+  verbose = TRUE,
+  family = "nb"
 )
 }
 \arguments{
+\item{family}{Outcome family: \code{"nb"} (default) or \code{"gaussian"}.
+Gaussian uses the identity link, theta as SD, and zero offsets.}
 \item{formula}{the formula for the effect of exposure at time t regarding the
 exposure history. Use sX() for the distributed lag term. For example y ~
 sX(t, x).}

@@ -12,5 +12,6 @@
 \item{verbose}{whether to print messages during the process, default \code{FALSE}.}
 }
 \description{
+Rate ratios are available for NB models only.
 Title Rate Ratio for aceDLNMadditive_fit objects
 }

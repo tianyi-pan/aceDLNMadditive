@@ -18,5 +18,6 @@
 \item{...}{}
 }
 \description{
+Predictions and intervals are for the linear predictor, equal to the Gaussian mean.
 Title Obtain predictions from the fitted model by aceDLNM
 }
