@@ -53,7 +53,9 @@ sX(t, x).}
 
 \item{smooth}{the formula for the other smooth functions. The smooths are
 specified by mgcv::s. For example ~ s(z). Note also that the Gaussian
-random effect models are accommodated, by setting s(bs = "re").}
+random effect models are accommodated, by setting s(bs = "re").
+Use \code{NULL} (default) for no additional smooth terms; exposure effects,
+the intercept, and any specified fixed effects are still fitted.}
 
 \item{unpen.smooth}{the formula for the other unpenalized smooth functions.}
 

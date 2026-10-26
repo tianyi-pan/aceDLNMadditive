@@ -7,6 +7,8 @@
 #' @param smooth the formula for the other smooth functions. The smooths are
 #'   specified by mgcv::s. For example ~ s(z). Note also that the Gaussian
 #'   random effect models are accommodated, by setting s(bs = "re").
+#'   Use \code{NULL} (default) for no additional smooth terms; exposure effects,
+#'   the intercept, and any specified fixed effects are still fitted.
 #' @param unpen.smooth the formula for the other unpenalized smooth functions.
 #' @param fe.varying the formula for time-varying covariates in linear
 #'   components. For example ~ z
@@ -501,6 +503,10 @@ aceDLNMadditive <- function(formula,
 
     model.choice = "with.smooth"
   } else{
+    Xrand <- matrix(numeric(0), nrow = nrow(sXdat), ncol = 0)
+    Xfix <- matrix(numeric(0), nrow = nrow(sXdat), ncol = 0)
+    r <- numeric(0)
+    m <- numeric(0)
     model.choice = "without.smooth"
   }
 
@@ -635,21 +641,13 @@ aceDLNMadditive <- function(formula,
   betaF.init.default <- rep(0, ncol(Xfix))
 
   ## A list to store the optimization results at given smoothing log_theta.given, log_smoothing_f.given, log_smoothing_w.given.
-  if(model.choice == "with.smooth") {
-    betaR.init.default <- rep(0,ncol(Xrand))
-    LAMLenv <- list(par = NULL,
-                    fn = NULL,
-                    gr = NULL,
-                    mod = list(phi.mod = phi.init.default, alpha_f.mod = alpha_f.init.default,
-                              betaF.mod = betaF.init.default,
-                              betaR.mod = betaR.init.default))
-  } else {
-    LAMLenv <- list(par = NULL,
-                fn = NULL,
-                gr = NULL,
-                mod = list(phi.mod = phi.init.default, alpha_f.mod = alpha_f.init.default,
-                            betaF.mod = betaF.init.default))
-  }
+  betaR.init.default <- rep(0,ncol(Xrand))
+  LAMLenv <- list(par = NULL,
+                  fn = NULL,
+                  gr = NULL,
+                  mod = list(phi.mod = phi.init.default, alpha_f.mod = alpha_f.init.default,
+                            betaF.mod = betaF.init.default,
+                            betaR.mod = betaR.init.default))
 
   ## upper bound
   if(model.choice == "with.smooth") {
@@ -664,7 +662,7 @@ aceDLNMadditive <- function(formula,
     log_theta.given <- par[1]
     log_smoothing_f.given <- par[2:(M+1)]
     log_smoothing_w.given <- par[(M+2):(2*M+1)]
-    if(model.choice == "with.smooth") logsmoothing.given <- par[-(1:(2*M+1))]
+    logsmoothing.given <- par[-(1:(2*M+1))]
     ## Inner opt
     if(is.null(LAMLenv$par) | !all(par == LAMLenv$par)) {
       ## Inner opt
@@ -674,40 +672,24 @@ aceDLNMadditive <- function(formula,
       if(any(is.nan(alpha_f.init))) alpha_f.init <- alpha_f.init.default
       betaF.init <- LAMLenv$mod$betaF.mod
       if(any(is.nan(betaF.init))) betaF.init <- betaF.init.default
-      if(model.choice == "with.smooth"){
-        betaR.init <- LAMLenv$mod$betaR.mod
-        if(any(is.nan(betaR.init))) betaR.init <- betaR.init.default
+      betaR.init <- LAMLenv$mod$betaR.mod
+      if(any(is.nan(betaR.init))) betaR.init <- betaR.init.default
 
-        LAML.results <- aceDLNMadditiveopt(mod.address,
-                                   ad.address,
-                                    alpha_f.init,
-                                    phi.init,
-                                    log_theta.given, log_smoothing_f.given, log_smoothing_w.given,
-                                    betaR.init, betaF.init, logsmoothing.given,
-                                    verbose)
-        LAMLenv$par <<- par
-        LAMLenv$mod$phi.mod <<- LAML.results$phi.mod
-        LAMLenv$mod$alpha_f.mod <<- LAML.results$alpha_f.mod
-        LAMLenv$mod$betaF.mod <<- LAML.results$betaF.mod
-        LAMLenv$mod$betaR.mod <<- LAML.results$betaR.mod
-        LAMLenv$fn <<- LAML.results$LAML.fn
-        LAMLenv$gr <<- LAML.results$LAML.gradient
-      }
-      ## TODO
-      # else {
-      #   LAML.results <- aceDLNMopt_nosmooth(mod.address,
-      #                                          alpha_f.init,
-      #                                          phi.init,
-      #                                          log_theta.given, log_smoothing_f.given, log_smoothing_w.given,
-      #                                          betaF.init,
-      #                                          verbose)
-      #   LAMLenv$par <<- par
-      #   LAMLenv$mod$phi.mod <<- LAML.results$phi.mod
-      #   LAMLenv$mod$alpha_f.mod <<- LAML.results$alpha_f.mod
-      #   LAMLenv$mod$betaF.mod <<- LAML.results$betaF.mod
-      #   LAMLenv$fn <<- LAML.results$LAML.fn
-      #   LAMLenv$gr <<- LAML.results$LAML.gradient
-      # }
+      LAML.results <- aceDLNMadditiveopt(mod.address,
+                                 ad.address,
+                                  alpha_f.init,
+                                  phi.init,
+                                  log_theta.given, log_smoothing_f.given, log_smoothing_w.given,
+                                  betaR.init, betaF.init, logsmoothing.given,
+                                  verbose)
+      LAMLenv$par <<- par
+      LAMLenv$mod$phi.mod <<- LAML.results$phi.mod
+      LAMLenv$mod$alpha_f.mod <<- LAML.results$alpha_f.mod
+      LAMLenv$mod$betaF.mod <<- LAML.results$betaF.mod
+      LAMLenv$mod$betaR.mod <<- LAML.results$betaR.mod
+      LAMLenv$fn <<- LAML.results$LAML.fn
+      LAMLenv$gr <<- LAML.results$LAML.gradient
+
 
     }
   }
@@ -716,7 +698,7 @@ aceDLNMadditive <- function(formula,
     log_theta.given <- par[1]
     log_smoothing_f.given <- par[2:(M+1)]
     log_smoothing_w.given <- par[(M+2):(2*M+1)]
-    if(model.choice == "with.smooth") logsmoothing.given <- par[-(1:(2*M+1))]
+    logsmoothing.given <- par[-(1:(2*M+1))]
 
     ## Inner opt
     phi.init <- LAMLenv$mod$phi.mod
@@ -726,18 +708,16 @@ aceDLNMadditive <- function(formula,
     betaF.init <- LAMLenv$mod$betaF.mod
     if(any(is.nan(betaF.init))) betaF.init <- betaF.init.default
 
-    if(model.choice == "with.smooth"){
-      betaR.init <- LAMLenv$mod$betaR.mod
-      if(any(is.nan(betaF.init))) betaR.init <- betaR.init.default
-      mod.build <- aceDLNMadditivebuild(y, B_inner, lapply(lapply(SSf.list, "[[", "SSf"), "[[", "knots"),
-                                SwI_large, lapply(SSf.list, "[[", "SfI"), Dw,
-                                Xrand, Xfix, lapply(SSf.list, "[[", "Zfnew"), Xoffset, r,
-                                K,a,
-                                alpha_f.init,
-                                phi.init,
-                                log_theta.given, log_smoothing_f.given, log_smoothing_w.given,
-                                betaR.init, betaF.init, logsmoothing.given, gaussian)
-    }
+    betaR.init <- LAMLenv$mod$betaR.mod
+    if(any(is.nan(betaF.init))) betaR.init <- betaR.init.default
+    mod.build <- aceDLNMadditivebuild(y, B_inner, lapply(lapply(SSf.list, "[[", "SSf"), "[[", "knots"),
+                              SwI_large, lapply(SSf.list, "[[", "SfI"), Dw,
+                              Xrand, Xfix, lapply(SSf.list, "[[", "Zfnew"), Xoffset, r,
+                              K,a,
+                              alpha_f.init,
+                              phi.init,
+                              log_theta.given, log_smoothing_f.given, log_smoothing_w.given,
+                              betaR.init, betaF.init, logsmoothing.given, gaussian)
 
     mod.build
   }
@@ -953,33 +933,19 @@ aceDLNMadditive <- function(formula,
     out$smooth$fE <- lapply(SSf.list, "[[", "SSf")
   }
 
-  if(model.choice == "with.smooth") {
-    log_smoothing.opt <- LAMLenv$par[-(1:(1+2*M))]
-    betaR.opt <- LAMLenv$mod$betaR.mod
-    out$point$betaR = betaR.opt
-    out$point$log_smoothing = log_smoothing.opt
-  }
+  log_smoothing.opt <- LAMLenv$par[-(1:(1+2*M))]
+  betaR.opt <- LAMLenv$mod$betaR.mod
+  out$point$betaR = betaR.opt
+  out$point$log_smoothing = log_smoothing.opt
 
   ## CI
   if(verbose) {
     cat("Start sampling for CI ... \n")
     start <- Sys.time()
   }
-  if(model.choice == "with.smooth") {
-    sampled <- aceDLNMadditiveCI(mod.address,
-                         CI.R, CI.seed,
-                         eta, delta.method, verbose)
-  } else {
-    ## TODO:
-    # sampled <- aceDLNMCI_nosmooth(y, B_inner, SSf$knots, SwI, SfI, Dw,
-    #                               Xfix, Zfnew, Xoffset,
-    #                                  LAMLenv$mod$alpha_f.mod,
-    #                                   phi.opt,
-    #                                   log_theta.opt, log_smoothing_f.opt, log_smoothing_w.opt,
-    #                                   betaF.opt,
-    #                                   CI.R, CI.seed,
-    #                                   eta, delta.method, verbose)
-  }
+  sampled <- aceDLNMadditiveCI(mod.address,
+                       CI.R, CI.seed,
+                       eta, delta.method, verbose)
 
   eta1 <- apply(sapply(1:M, function(i) {
     E <- B_inner[[i]] %*% alpha_w.opt.list[[i]]
@@ -1073,6 +1039,10 @@ aceDLNMadditive <- function(formula,
     out$data$r = r
     out$data$m = m
     out$smooth$others = SS
+  } else {
+    out$data$Xrand = Xrand
+    out$data$r = r
+    out$data$m = m
   }
   # if(!is.null(unpen.smooth)) {
   #   out$smooth$unpen.smooth = unpen.SS

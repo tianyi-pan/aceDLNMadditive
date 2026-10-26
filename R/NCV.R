@@ -306,6 +306,9 @@ NCV.aceDLNMadditive_fit <- function(object, kNCV = 0, NCV.nthreads = 1, verbose 
 
     model.choice = "with.smooth"
   } else{
+    Xrand <- matrix(numeric(0), nrow = nrow(sXdat), ncol = 0)
+    Xfix <- matrix(numeric(0), nrow = nrow(sXdat), ncol = 0)
+    r <- numeric(0)
     model.choice = "without.smooth"
   }
 

@@ -295,6 +295,9 @@ predict.aceDLNMadditive_fit <- function(object, dat, CI.seed = 123, CI = 0.95, .
 
     model.choice = "with.smooth"
   } else{
+    Xrand <- matrix(numeric(0), nrow = nrow(sXdat), ncol = 0)
+    Xfix <- matrix(numeric(0), nrow = nrow(sXdat), ncol = 0)
+    r <- numeric(0)
     model.choice = "without.smooth"
   }
 
