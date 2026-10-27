@@ -106,6 +106,22 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// SLaceDLNMadditive
+List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose, bool aic, int nthreads, Rcpp::Nullable<Rcpp::NumericMatrix> coef_samples);
+RcppExport SEXP _aceDLNMadditive_SLaceDLNMadditive(SEXP ptrSEXP, SEXP ptr_cfSEXP, SEXP verboseSEXP, SEXP aicSEXP, SEXP nthreadsSEXP, SEXP coef_samplesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ptr(ptrSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type ptr_cf(ptr_cfSEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    Rcpp::traits::input_parameter< bool >::type aic(aicSEXP);
+    Rcpp::traits::input_parameter< int >::type nthreads(nthreadsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type coef_samples(coef_samplesSEXP);
+    rcpp_result_gen = Rcpp::wrap(SLaceDLNMadditive(ptr, ptr_cf, verbose, aic, nthreads, coef_samples));
+    return rcpp_result_gen;
+END_RCPP
+}
 // BsplinevecCon1st
 Eigen::VectorXd BsplinevecCon1st(double x, const Eigen::VectorXd& t, int p, Eigen::MatrixXd Z);
 RcppExport SEXP _aceDLNMadditive_BsplinevecCon1st(SEXP xSEXP, SEXP tSEXP, SEXP pSEXP, SEXP ZSEXP) {
@@ -344,6 +360,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_aceDLNMadditive_aceDLNMadditiveCI", (DL_FUNC) &_aceDLNMadditive_aceDLNMadditiveCI, 7},
     {"_aceDLNMadditive_ConditionalAICaceDLNMadditive", (DL_FUNC) &_aceDLNMadditive_ConditionalAICaceDLNMadditive, 1},
     {"_aceDLNMadditive_NCVaceDLNMadditive", (DL_FUNC) &_aceDLNMadditive_NCVaceDLNMadditive, 4},
+    {"_aceDLNMadditive_SLaceDLNMadditive", (DL_FUNC) &_aceDLNMadditive_SLaceDLNMadditive, 6},
     {"_aceDLNMadditive_BsplinevecCon1st", (DL_FUNC) &_aceDLNMadditive_BsplinevecCon1st, 4},
     {"_aceDLNMadditive_BsplinevecCon2nd", (DL_FUNC) &_aceDLNMadditive_BsplinevecCon2nd, 4},
     {"_aceDLNMadditive_knotindex", (DL_FUNC) &_aceDLNMadditive_knotindex, 2},

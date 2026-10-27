@@ -2,6 +2,7 @@
 
 S3method(mDLNM::NCV,aceDLNMadditive_fit)
 S3method(mDLNM::RateRatio,aceDLNMadditive_fit)
+S3method(mDLNM::SLdata,aceDLNMadditive_fit)
 S3method(predict,aceDLNMadditive_fit)
 S3method(residuals,aceDLNMadditive_fit)
 S3method(summary,aceDLNMadditive_fit)

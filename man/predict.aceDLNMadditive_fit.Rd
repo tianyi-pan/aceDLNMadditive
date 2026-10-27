@@ -4,7 +4,7 @@
 \alias{predict.aceDLNMadditive_fit}
 \title{Title Obtain predictions from the fitted model by aceDLNM}
 \usage{
-\method{predict}{aceDLNMadditive_fit}(object, dat, CI.seed = 123, CI = 0.95, ...)
+\method{predict}{aceDLNMadditive_fit}(object, dat, CI.seed = 123, CI = 0.95, .build.only = FALSE, ...)
 }
 \arguments{
 \item{object}{object of class \code{aceDLNM_fit}.}
@@ -15,7 +15,10 @@
 
 \item{CI}{confidence level, default \code{0.95}.}
 
-\item{...}{}
+\item{.build.only}{Internal use by \code{SLdata()}: return the reconstructed
+model without sampling.}
+
+\item{...}{Unused.}
 }
 \description{
 Predictions and intervals are for the linear predictor, equal to the Gaussian mean.

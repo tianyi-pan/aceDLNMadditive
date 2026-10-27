@@ -1002,3 +1002,206 @@ List NCVaceDLNMadditive(SEXP ptr, const List nei_list, bool verbose = false, int
 
 }
 
+// [[Rcpp::export]]
+List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = false, int nthreads = 1, Rcpp::Nullable<Rcpp::NumericMatrix> coef_samples = R_NilValue) {
+  if(nthreads < 1) Rcpp::stop("nthreads must be at least 1.");
+  #ifdef _OPENMP
+    if(verbose && nthreads > 1) Rcpp::Rcout << "Using " << nthreads << " threads for deletion calculations.\n";
+  #else
+    if(nthreads > 1) Rcpp::Rcout << "Warning: OpenMP is OFF. Using one thread.\n";
+  #endif
+  Rcpp::XPtr<Model> modelobj_ptr(ptr);
+  Model& modelobj = *modelobj_ptr;
+  int n = modelobj.n;
+  int kE = modelobj.kE;
+  int kwopt = modelobj.kwopt;
+  int kbetaR = modelobj.kbetaR;
+  int kbetaF = modelobj.kbetaF;
+  int q = kE + kwopt + kbetaR + kbetaF;
+  Eigen::VectorXd beta(q);
+  beta << modelobj.alpha_f, modelobj.phi, modelobj.betaR, modelobj.betaF;
+
+  modelobj.derivative_coef();
+  modelobj.derivative_he();
+  modelobj.derivative_full();
+  modelobj.prepare_AIC();
+  Eigen::MatrixXd Hpen = modelobj.IS_mat.topLeftCorner(q, q);
+  Eigen::MatrixXd score = modelobj.Kleft.topRows(q);
+  Eigen::MatrixXd Xfix = modelobj.getXfix();
+  Eigen::MatrixXd Xrand = modelobj.getXrand();
+  Eigen::VectorXd Xoffset = modelobj.getXoffset();
+  std::vector<Eigen::MatrixXd> B_inner = modelobj.getB_inner_list();
+  std::vector<Eigen::VectorXd> knots_f = modelobj.getknots_f_list();
+  std::vector<Eigen::MatrixXd> Zf = modelobj.getZf_list();
+  if(ptr_cf == R_NilValue) Rcpp::stop("Counterfactual data are required.");
+  Rcpp::XPtr<Model> cf_ptr(ptr_cf);
+  Model& counterfactual = *cf_ptr;
+  if(counterfactual.n != n || counterfactual.M != modelobj.M ||
+     counterfactual.kE != kE || counterfactual.kwopt != kwopt ||
+     counterfactual.kbetaR != kbetaR || counterfactual.kbetaF != kbetaF) {
+    Rcpp::stop("Counterfactual data must retain the fitted records and model structure.");
+  }
+  Eigen::MatrixXd Xfix_cf = counterfactual.getXfix();
+  Eigen::MatrixXd Xrand_cf = counterfactual.getXrand();
+  Eigen::VectorXd Xoffset_cf = counterfactual.getXoffset();
+  std::vector<Eigen::MatrixXd> B_inner_cf = counterfactual.getB_inner_list();
+  std::vector<Eigen::VectorXd> knots_f_cf = counterfactual.getknots_f_list();
+  std::vector<Eigen::MatrixXd> Zf_cf = counterfactual.getZf_list();
+
+  // Evaluate only the requested records. Normalize the lag weights once per call.
+  auto predict_mu = [&](const Eigen::VectorXd& beta_i, const Eigen::VectorXi& rows,
+                        bool intervention = false) {
+    const Model& prediction_model = intervention ? counterfactual : modelobj;
+    const Eigen::MatrixXd& Xfix_i = intervention ? Xfix_cf : Xfix;
+    const Eigen::MatrixXd& Xrand_i = intervention ? Xrand_cf : Xrand;
+    const Eigen::VectorXd& Xoffset_i = intervention ? Xoffset_cf : Xoffset;
+    const auto& B_inner_i = intervention ? B_inner_cf : B_inner;
+    const auto& knots_f_i = intervention ? knots_f_cf : knots_f;
+    const auto& Zf_i = intervention ? Zf_cf : Zf;
+    Eigen::VectorXd phiKa = prediction_model.K * beta_i.segment(kE, kwopt) + prediction_model.a;
+    Eigen::VectorXd alpha_w(prediction_model.kw);
+    for(int m = 0; m < prediction_model.M; m++) {
+      Eigen::VectorXd wl(prediction_model.kwp);
+      wl(0) = 1.0;
+      wl.tail(prediction_model.kwp - 1) = phiKa.segment(m * (prediction_model.kwp - 1), prediction_model.kwp - 1);
+      alpha_w.segment(m * prediction_model.kwp, prediction_model.kwp) = wl / sqrt(wl.dot(prediction_model.Dw * wl));
+    }
+    Eigen::VectorXd mu(rows.size());
+    for(int r = 0; r < rows.size(); r++) {
+      int i = rows(r);
+      double eta = Xfix_i.row(i).dot(beta_i.tail(kbetaF)) +
+        Xrand_i.row(i).dot(beta_i.segment(kE + kwopt, kbetaR)) + Xoffset_i(i);
+      for(int m = 0; m < prediction_model.M; m++) {
+        double E = B_inner_i.at(m).row(i).dot(
+          alpha_w.segment(m * prediction_model.kwp, prediction_model.kwp));
+        eta += BsplinevecCon(E, knots_f_i.at(m), 4, Zf_i.at(m)).dot(
+          beta_i.segment(m * prediction_model.kEp, prediction_model.kEp));
+      }
+      mu(r) = exp(eta);
+    }
+    return mu;
+  };
+
+  Eigen::VectorXi rows = Eigen::VectorXi::LinSpaced(n, 0, n - 1);
+  double delta = predict_mu(beta, rows, true).sum() / predict_mu(beta, rows).sum();
+
+  if(aic) {
+    Model evaluation(modelobj);
+    auto criterion = [&](Model& evaluation, int deleted) {
+      evaluation.derivative_coef();
+      evaluation.derivative_he();
+      evaluation.derivative_full();
+      evaluation.prepare_AIC();
+      double nll = evaluation.NegLogL_l;
+      Eigen::MatrixXd H = evaluation.IS_mat;
+      Eigen::MatrixXd I = evaluation.I_mat;
+      Eigen::MatrixXd Khat = evaluation.Khat;
+      if(deleted >= 0) {
+        Eigen::VectorXd nei(1);
+        nei(0) = deleted + 1;
+        Eigen::MatrixXd Hi = evaluation.prepare_NCV(nei);
+        H -= Hi;
+        I -= Hi;
+        Khat -= evaluation.Kleft.col(deleted) * evaluation.Kleft.col(deleted).transpose();
+        nll -= evaluation.get_D_i(evaluation.alpha_f, evaluation.phi,
+                                  evaluation.betaR, evaluation.betaF,
+                                  evaluation.log_theta, deleted);
+      }
+      // Preserve the existing AIC EDF, including the dispersion coordinate.
+      Eigen::LDLT<Eigen::MatrixXd> solver(H);
+      Eigen::VectorXd out(2);
+      out << 2.0 * nll + 2.0 * solver.solve(I).trace(),
+             2.0 * nll + 2.0 * solver.solve(Khat).trace();
+      return out;
+    };
+    Eigen::VectorXd aic_full = criterion(evaluation, -1);
+    Eigen::MatrixXd aic_loo(n, 2);
+    Eigen::VectorXd delta_loo(n);
+    if(coef_samples.isNull()) Rcpp::stop("AICdata() requires stored coefficient samples.");
+    Eigen::MatrixXd samples = Rcpp::as<Eigen::MatrixXd>(coef_samples.get());
+    if(samples.rows() < 2 || samples.cols() != q) {
+      Rcpp::stop("Coefficient samples must have at least two rows and match the fitted coefficients.");
+    }
+    Eigen::VectorXd delta_sample(samples.rows());
+    for(int j = 0; j < samples.rows(); j++) {
+      if(j % 100 == 0) Rcpp::checkUserInterrupt();
+      Eigen::VectorXd beta_sample = samples.row(j).transpose();
+      delta_sample(j) = predict_mu(beta_sample, rows, true).sum() /
+        predict_mu(beta_sample, rows).sum();
+    }
+
+    for(int start = 0; start < n; start += 100) {
+      Rcpp::checkUserInterrupt();
+      int end = std::min(start + 100, n);
+      #ifdef _OPENMP
+        #pragma omp parallel num_threads(nthreads) if(nthreads > 1)
+      #endif
+      {
+        Model local_model(modelobj), local_evaluation(modelobj);
+        Eigen::VectorXd nei(1);
+        #ifdef _OPENMP
+          #pragma omp for schedule(static, 1)
+        #endif
+        for(int i = start; i < end; i++) {
+          nei(0) = i + 1;
+          Eigen::MatrixXd Hdeleted = Hpen - local_model.prepare_NCV(nei).topLeftCorner(q, q);
+          Eigen::VectorXd beta_i = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i));
+          delta_loo(i) = predict_mu(beta_i, rows, true).sum() / predict_mu(beta_i, rows).sum();
+          local_evaluation.setAlphaF(beta_i.head(kE));
+          local_evaluation.setPhi(beta_i.segment(kE, kwopt));
+          local_evaluation.setBetaR(beta_i.segment(kE + kwopt, kbetaR));
+          local_evaluation.setBetaF(beta_i.tail(kbetaF));
+          aic_loo.row(i) = criterion(local_evaluation, i).transpose();
+        }
+      }
+      if(verbose) Rcpp::Rcout << "AIC deletion " << end << " / " << n << "\n";
+    }
+    return List::create(Named("aic") = aic_full, Named("aic.loo") = aic_loo,
+                        Named("delta") = delta, Named("delta.loo") = delta_loo,
+                        Named("delta.sample") = delta_sample);
+  }
+
+  Eigen::VectorXd mu_loo(n), delta_loo(n);
+  Eigen::MatrixXd mu_lto = Eigen::MatrixXd::Constant(n, n, NA_REAL);
+  for(int start = 0; start < n; start += 100) {
+    Rcpp::checkUserInterrupt();
+    int end = std::min(start + 100, n);
+    #ifdef _OPENMP
+      #pragma omp parallel num_threads(nthreads) if(nthreads > 1)
+    #endif
+    {
+      Model local_model(modelobj);
+      Eigen::VectorXd nei(1), pair(2);
+      Eigen::VectorXi pair_rows(2);
+      #ifdef _OPENMP
+        #pragma omp for schedule(static, 1)
+      #endif
+      for(int i = start; i < end; i++) {
+        nei(0) = i + 1;
+        Eigen::MatrixXd Hi = local_model.prepare_NCV(nei).topLeftCorner(q, q);
+        Eigen::MatrixXd Hdeleted = Hpen - Hi;
+        Eigen::VectorXd beta_i = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i));
+        Eigen::VectorXd mu = predict_mu(beta_i, rows);
+        mu_loo(i) = mu(i);
+        delta_loo(i) = predict_mu(beta_i, rows, true).sum() / mu.sum();
+
+        for(int j = i + 1; j < n; j++) {
+          pair << i + 1, j + 1;
+          Hdeleted = Hpen - local_model.prepare_NCV(pair).topLeftCorner(q, q);
+          Eigen::VectorXd beta_ij = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i) + score.col(j));
+          pair_rows << i, j;
+          Eigen::VectorXd mu_pair = predict_mu(beta_ij, pair_rows);
+          mu_lto(i, j) = mu_pair(1);
+          mu_lto(j, i) = mu_pair(0);
+        }
+      }
+    }
+    if(verbose) Rcpp::Rcout << "Super Learner deletion " << end << " / " << n << "\n";
+  }
+
+  return List::create(Named("mu.loo") = mu_loo,
+                      Named("mu.lto") = mu_lto,
+                      Named("delta") = delta,
+                      Named("delta.loo") = delta_loo);
+}
+
