@@ -4,6 +4,7 @@ R package for additive extensions of Adaptive Cumulative Exposure Distributed La
 The [`aceDLNM` package](https://github.com/tianyi-pan/aceDLNM/) focuses on a single pollutant. 
 A natural extension is to accommodate multiple pollutants using an additive model. This extension is implemented in the `aceDLNMadditive` package. 
 
+More details can be found in this paper: [ArXiv](https://arxiv.org/abs/2604.22692). 
 
 
 ## Installation

@@ -8,3 +8,5 @@ src/*.dll
 .vscode
 .DS_Store
 tmp.R
+test.RData
+*.tar.gz

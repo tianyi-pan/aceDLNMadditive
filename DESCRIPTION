@@ -1,10 +1,11 @@
 Package: aceDLNMadditive
 Type: Package
 Title: Additive Adaptive Cumulative Exposure Distributed Lag Non-Linear Models
-Version: 0.1.0
+Version: 0.2.0
 Author: Tianyi Pan
 Maintainer: Tianyi Pan <tianyi.pan@uwaterloo.ca>
-Description: Fit additive ACE-DLNMs
+Description: Fit additive ACE-DLNMs. This package is updated to support 
+    the new feature of multiple exposure DLNMs. 
 License: GPL (>= 3)
 Encoding: UTF-8
 Depends:

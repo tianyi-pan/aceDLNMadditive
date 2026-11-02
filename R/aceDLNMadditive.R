@@ -549,7 +549,7 @@ aceDLNMadditive <- function(formula,
   t <- sXdat$t
 
   if(missingArg(upper.bound)) upper.bound <- c(10, rep(20, M), rep(20, M))
-  lower.bound <- c(if(gaussian) -4 else -2,rep(-8, M),rep(-8, M))
+  lower.bound <- c(if(gaussian) -4 else -2,rep(0, M),rep(0, M))
 
   ## f functions
   SSf.list <- lapply(1:M, function(i) {
