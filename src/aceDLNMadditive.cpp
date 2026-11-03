@@ -1049,7 +1049,7 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
   std::vector<Eigen::MatrixXd> Zf_cf = counterfactual.getZf_list();
 
   // Evaluate only the requested records. Normalize the lag weights once per call.
-  auto predict_mu = [&](const Eigen::VectorXd& beta_i, const Eigen::VectorXi& rows,
+  auto predict_eta = [&](const Eigen::VectorXd& beta_i, const Eigen::VectorXi& rows,
                         bool intervention = false) {
     const Model& prediction_model = intervention ? counterfactual : modelobj;
     const Eigen::MatrixXd& Xfix_i = intervention ? Xfix_cf : Xfix;
@@ -1066,7 +1066,7 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
       wl.tail(prediction_model.kwp - 1) = phiKa.segment(m * (prediction_model.kwp - 1), prediction_model.kwp - 1);
       alpha_w.segment(m * prediction_model.kwp, prediction_model.kwp) = wl / sqrt(wl.dot(prediction_model.Dw * wl));
     }
-    Eigen::VectorXd mu(rows.size());
+    Eigen::VectorXd eta_values(rows.size());
     for(int r = 0; r < rows.size(); r++) {
       int i = rows(r);
       double eta = Xfix_i.row(i).dot(beta_i.tail(kbetaF)) +
@@ -1077,13 +1077,21 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
         eta += BsplinevecCon(E, knots_f_i.at(m), 4, Zf_i.at(m)).dot(
           beta_i.segment(m * prediction_model.kEp, prediction_model.kEp));
       }
-      mu(r) = exp(eta);
+      eta_values(r) = eta;
     }
-    return mu;
+    return eta_values;
   };
 
   Eigen::VectorXi rows = Eigen::VectorXi::LinSpaced(n, 0, n - 1);
-  double delta = predict_mu(beta, rows, true).sum() / predict_mu(beta, rows).sum();
+  auto log_sum_exp = [](const Eigen::VectorXd& eta) {
+    double m = eta.maxCoeff();
+    return m + std::log((eta.array() - m).exp().sum());
+  };
+  auto mortality_ratio = [&](const Eigen::VectorXd& coef) {
+    return std::exp(log_sum_exp(predict_eta(coef, rows, true)) -
+                    log_sum_exp(predict_eta(coef, rows)));
+  };
+  double delta = mortality_ratio(beta);
 
   if(aic) {
     Model evaluation(modelobj);
@@ -1126,8 +1134,7 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
     for(int j = 0; j < samples.rows(); j++) {
       if(j % 100 == 0) Rcpp::checkUserInterrupt();
       Eigen::VectorXd beta_sample = samples.row(j).transpose();
-      delta_sample(j) = predict_mu(beta_sample, rows, true).sum() /
-        predict_mu(beta_sample, rows).sum();
+      delta_sample(j) = mortality_ratio(beta_sample);
     }
 
     for(int start = 0; start < n; start += 100) {
@@ -1146,7 +1153,7 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
           nei(0) = i + 1;
           Eigen::MatrixXd Hdeleted = Hpen - local_model.prepare_NCV(nei).topLeftCorner(q, q);
           Eigen::VectorXd beta_i = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i));
-          delta_loo(i) = predict_mu(beta_i, rows, true).sum() / predict_mu(beta_i, rows).sum();
+          delta_loo(i) = mortality_ratio(beta_i);
           local_evaluation.setAlphaF(beta_i.head(kE));
           local_evaluation.setPhi(beta_i.segment(kE, kwopt));
           local_evaluation.setBetaR(beta_i.segment(kE + kwopt, kbetaR));
@@ -1181,18 +1188,19 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
         Eigen::MatrixXd Hi = local_model.prepare_NCV(nei).topLeftCorner(q, q);
         Eigen::MatrixXd Hdeleted = Hpen - Hi;
         Eigen::VectorXd beta_i = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i));
-        Eigen::VectorXd mu = predict_mu(beta_i, rows);
-        mu_loo(i) = mu(i);
-        delta_loo(i) = predict_mu(beta_i, rows, true).sum() / mu.sum();
+        Eigen::VectorXd eta = predict_eta(beta_i, rows);
+        mu_loo(i) = exp(eta(i));
+        delta_loo(i) = std::exp(log_sum_exp(predict_eta(beta_i, rows, true)) -
+                                log_sum_exp(eta));
 
         for(int j = i + 1; j < n; j++) {
           pair << i + 1, j + 1;
           Hdeleted = Hpen - local_model.prepare_NCV(pair).topLeftCorner(q, q);
           Eigen::VectorXd beta_ij = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i) + score.col(j));
           pair_rows << i, j;
-          Eigen::VectorXd mu_pair = predict_mu(beta_ij, pair_rows);
-          mu_lto(i, j) = mu_pair(1);
-          mu_lto(j, i) = mu_pair(0);
+          Eigen::VectorXd eta_pair = predict_eta(beta_ij, pair_rows);
+          mu_lto(i, j) = exp(eta_pair(1));
+          mu_lto(j, i) = exp(eta_pair(0));
         }
       }
     }
