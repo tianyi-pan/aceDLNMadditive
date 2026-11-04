@@ -4,6 +4,8 @@
 using namespace Rcpp;
 
 #include <random> // for generating samples from standard normal distribution
+#include <memory>
+#include <numeric>
 
 
 #ifdef _OPENMP
@@ -1168,48 +1170,205 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
                         Named("delta.sample") = delta_sample);
   }
 
-  Eigen::VectorXd mu_loo(n), delta_loo(n);
-  Eigen::MatrixXd mu_lto = Eigen::MatrixXd::Constant(n, n, NA_REAL);
-  for(int start = 0; start < n; start += 100) {
-    Rcpp::checkUserInterrupt();
-    int end = std::min(start + 100, n);
-    #ifdef _OPENMP
-      #pragma omp parallel num_threads(nthreads) if(nthreads > 1)
-    #endif
-    {
-      Model local_model(modelobj);
-      Eigen::VectorXd nei(1), pair(2);
-      Eigen::VectorXi pair_rows(2);
-      #ifdef _OPENMP
-        #pragma omp for schedule(static, 1)
-      #endif
-      for(int i = start; i < end; i++) {
-        nei(0) = i + 1;
-        Eigen::MatrixXd Hi = local_model.prepare_NCV(nei).topLeftCorner(q, q);
-        Eigen::MatrixXd Hdeleted = Hpen - Hi;
-        Eigen::VectorXd beta_i = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i));
-        Eigen::VectorXd eta = predict_eta(beta_i, rows);
-        mu_loo(i) = exp(eta(i));
-        delta_loo(i) = std::exp(log_sum_exp(predict_eta(beta_i, rows, true)) -
-                                log_sum_exp(eta));
-
-        for(int j = i + 1; j < n; j++) {
-          pair << i + 1, j + 1;
-          Hdeleted = Hpen - local_model.prepare_NCV(pair).topLeftCorner(q, q);
-          Eigen::VectorXd beta_ij = beta - Hdeleted.completeOrthogonalDecomposition().solve(score.col(i) + score.col(j));
-          pair_rows << i, j;
-          Eigen::VectorXd eta_pair = predict_eta(beta_ij, pair_rows);
-          mu_lto(i, j) = exp(eta_pair(1));
-          mu_lto(j, i) = exp(eta_pair(0));
-        }
-      }
-    }
-    if(verbose) Rcpp::Rcout << "Super Learner deletion " << end << " / " << n << "\n";
-  }
-
-  return List::create(Named("mu.loo") = mu_loo,
-                      Named("mu.lto") = mu_lto,
-                      Named("delta") = delta,
-                      Named("delta.loo") = delta_loo);
+  List cf = List::create(Named("B_inner") = B_inner_cf,
+                         Named("knots_f") = knots_f_cf, Named("Zf") = Zf_cf,
+                         Named("Xfix") = Xfix_cf, Named("Xrand") = Xrand_cf,
+                         Named("offset") = Xoffset_cf,
+                         Named("K") = counterfactual.K, Named("a") = counterfactual.a,
+                         Named("Dw") = counterfactual.Dw);
+  if(verbose) Rcpp::Rcout << "Super Learner preparation complete.\n";
+  return List::create(Named("beta") = beta, Named("H") = Hpen,
+                      Named("score") = score, Named("cf") = cf,
+                      Named("delta") = delta);
 }
 
+struct SLState {
+  std::unique_ptr<Model> model;
+  Eigen::VectorXd beta, mu, offset, offset_cf;
+  Eigen::MatrixXd H, score, Xfix, Xrand, Xfix_cf, Xrand_cf, K_cf, Dw_cf;
+  Eigen::VectorXd a_cf;
+  std::vector<Eigen::MatrixXd> B, B_cf, Zf, Zf_cf, Hfold;
+  std::vector<Eigen::VectorXd> knots, knots_cf, scorefold;
+  std::vector<std::vector<int>> rows;
+  std::vector<int> fold;
+  double delta;
+
+  SLState(List data) {
+    List input = data["input"];
+    Eigen::VectorXd alpha_f = as<Eigen::VectorXd>(input["alpha_f"]);
+    Eigen::VectorXd phi = as<Eigen::VectorXd>(input["phi"]);
+    Eigen::VectorXd betaR = as<Eigen::VectorXd>(input["betaR"]);
+    Eigen::VectorXd betaF = as<Eigen::VectorXd>(input["betaF"]);
+    Eigen::VectorXd smoothing = as<Eigen::VectorXd>(input["log_smoothing"]);
+    model.reset(new Model(as<Eigen::VectorXd>(input["y"]),
+                          convertListToVectorEigenMatrixXd(input["B_inner"]),
+                          convertListToVectorEigenVectorXd(input["knots_f"]),
+                          as<Eigen::MatrixXd>(input["Sw"]),
+                          convertListToVectorEigenMatrixXd(input["Sf"]),
+                          as<Eigen::MatrixXd>(input["Dw"]),
+                          as<Eigen::MatrixXd>(input["Xrand"]),
+                          as<Eigen::MatrixXd>(input["Xfix"]),
+                          convertListToVectorEigenMatrixXd(input["Zf"]),
+                          as<Eigen::VectorXd>(input["offset"]),
+                          as<Eigen::VectorXd>(input["r"]),
+                          as<Eigen::MatrixXd>(input["K"]),
+                          as<Eigen::VectorXd>(input["a"]), alpha_f, phi,
+                          as<double>(input["log_theta"]),
+                          as<Eigen::VectorXd>(input["log_smoothing_f"]),
+                          as<Eigen::VectorXd>(input["log_smoothing_w"]),
+                          betaR, betaF, smoothing));
+    beta = as<Eigen::VectorXd>(data["beta"]);
+    H = as<Eigen::MatrixXd>(data["H"]);
+    score = as<Eigen::MatrixXd>(data["score"]);
+    delta = as<double>(data["delta"]);
+    B = model->getB_inner_list();
+    knots = model->getknots_f_list();
+    Zf = model->getZf_list();
+    Xfix = model->getXfix();
+    Xrand = model->getXrand();
+    offset = model->getXoffset();
+    List cf = data["cf"];
+    B_cf = convertListToVectorEigenMatrixXd(cf["B_inner"]);
+    knots_cf = convertListToVectorEigenVectorXd(cf["knots_f"]);
+    Zf_cf = convertListToVectorEigenMatrixXd(cf["Zf"]);
+    Xfix_cf = as<Eigen::MatrixXd>(cf["Xfix"]);
+    Xrand_cf = as<Eigen::MatrixXd>(cf["Xrand"]);
+    offset_cf = as<Eigen::VectorXd>(cf["offset"]);
+    K_cf = as<Eigen::MatrixXd>(cf["K"]);
+    a_cf = as<Eigen::VectorXd>(cf["a"]);
+    Dw_cf = as<Eigen::MatrixXd>(cf["Dw"]);
+  }
+
+  Eigen::VectorXd predict(const Eigen::VectorXd& coef, const std::vector<int>& rows,
+                          bool intervention = false) {
+    const auto& Bi = intervention ? B_cf : B;
+    const auto& knot = intervention ? knots_cf : knots;
+    const auto& Zi = intervention ? Zf_cf : Zf;
+    const auto& XF = intervention ? Xfix_cf : Xfix;
+    const auto& XR = intervention ? Xrand_cf : Xrand;
+    const auto& off = intervention ? offset_cf : offset;
+    const auto& K = intervention ? K_cf : model->K;
+    const auto& a = intervention ? a_cf : model->a;
+    const auto& Dw = intervention ? Dw_cf : model->Dw;
+    int kE = model->kE, kwopt = model->kwopt;
+    Eigen::VectorXd phiKa = K * coef.segment(kE, kwopt) + a;
+    Eigen::VectorXd alpha_w(model->kw);
+    for(int m = 0; m < model->M; m++) {
+      Eigen::VectorXd wl(model->kwp);
+      wl(0) = 1.0;
+      wl.tail(model->kwp - 1) = phiKa.segment(m * (model->kwp - 1), model->kwp - 1);
+      alpha_w.segment(m * model->kwp, model->kwp) = wl / sqrt(wl.dot(Dw * wl));
+    }
+    Eigen::VectorXd eta(rows.size());
+    for(size_t r = 0; r < rows.size(); r++) {
+      if(r % 1000 == 0) Rcpp::checkUserInterrupt();
+      int i = rows[r];
+      eta(r) = XF.row(i).dot(coef.tail(model->kbetaF)) +
+        XR.row(i).dot(coef.segment(kE + kwopt, model->kbetaR)) + off(i);
+      for(int m = 0; m < model->M; m++) {
+        double E = Bi.at(m).row(i).dot(alpha_w.segment(m * model->kwp, model->kwp));
+        eta(r) += BsplinevecCon(E, knot.at(m), 4, Zi.at(m)).dot(
+          coef.segment(m * model->kEp, model->kEp));
+      }
+    }
+    return eta;
+  }
+
+  double ratio(const Eigen::VectorXd& coef) {
+    std::vector<int> all(model->n);
+    std::iota(all.begin(), all.end(), 0);
+    Eigen::VectorXd eta = predict(coef, all);
+    Eigen::VectorXd eta_cf = predict(coef, all, true);
+    double m = eta.maxCoeff(), m_cf = eta_cf.maxCoeff();
+    return std::exp(m_cf + std::log((eta_cf.array() - m_cf).exp().sum()) -
+                    (m + std::log((eta.array() - m).exp().sum())));
+  }
+};
+
+// [[Rcpp::export]]
+List SLinit(List data, IntegerVector fold, Rcpp::Nullable<Rcpp::List> cache = R_NilValue) {
+  Rcpp::XPtr<SLState> state(new SLState(data), true);
+  int n = state->model->n, q = state->beta.size();
+  state->fold = as<std::vector<int>>(fold);
+  if(fold.size()) {
+    int K = Rcpp::max(fold);
+    state->rows.resize(K);
+    for(int i = 0; i < n; i++) state->rows[fold[i] - 1].push_back(i);
+  }
+  if(cache.isNotNull()) {
+    List saved(cache);
+    state->mu = as<Eigen::VectorXd>(saved["mu"]);
+    state->Hfold = convertListToVectorEigenMatrixXd(saved["Hfold"]);
+    state->scorefold = convertListToVectorEigenVectorXd(saved["scorefold"]);
+  } else {
+    state->mu.resize(n);
+    if(fold.size()) {
+      for(const auto& rows : state->rows) {
+        Rcpp::checkUserInterrupt();
+        Eigen::MatrixXd Hv = Eigen::MatrixXd::Zero(q, q);
+        Eigen::VectorXd sv = Eigen::VectorXd::Zero(q), nei(1);
+        for(size_t r = 0; r < rows.size(); r++) {
+          if(r % 100 == 0) Rcpp::checkUserInterrupt();
+          nei(0) = rows[r] + 1;
+          Hv += state->model->prepare_NCV(nei).topLeftCorner(q, q);
+          sv += state->score.col(rows[r]);
+        }
+        state->Hfold.push_back(Hv);
+        state->scorefold.push_back(sv);
+        Eigen::VectorXd coef = state->beta - (state->H - Hv).completeOrthogonalDecomposition().solve(sv);
+        Eigen::VectorXd eta = state->predict(coef, rows);
+        for(size_t r = 0; r < rows.size(); r++) state->mu(rows[r]) = std::exp(eta(r));
+      }
+    } else {
+      Eigen::VectorXd nei(1);
+      for(int j = 0; j < n; j++) {
+        if(j % 100 == 0) Rcpp::checkUserInterrupt();
+        nei(0) = j + 1;
+        Eigen::MatrixXd Hj = state->model->prepare_NCV(nei).topLeftCorner(q, q);
+        Eigen::VectorXd coef = state->beta - (state->H - Hj).completeOrthogonalDecomposition().solve(state->score.col(j));
+        state->mu(j) = std::exp(state->predict(coef, std::vector<int>{j})(0));
+      }
+    }
+  }
+  List saved = List::create(Named("mu") = state->mu, Named("Hfold") = state->Hfold,
+                            Named("scorefold") = state->scorefold);
+  return List::create(Named("ptr") = state, Named("mu") = state->mu,
+                      Named("delta") = state->delta, Named("cache") = saved);
+}
+
+// [[Rcpp::export]]
+List SLdelete(SEXP ptr, int i) {
+  Rcpp::XPtr<SLState> state(ptr);
+  int n = state->model->n, q = state->beta.size();
+  i--;
+  Eigen::VectorXd nei(1);
+  nei(0) = i + 1;
+  Eigen::MatrixXd Hi = state->model->prepare_NCV(nei).topLeftCorner(q, q);
+  Eigen::VectorXd coef = state->beta - (state->H - Hi).completeOrthogonalDecomposition().solve(state->score.col(i));
+  double delta = state->ratio(coef);
+  Eigen::VectorXd mu = state->mu;
+  if(state->fold.empty()) {
+    Eigen::VectorXd pair(2);
+    for(int j = 0; j < n; j++) {
+      if(j == i) continue;
+      if(j % 100 == 0) Rcpp::checkUserInterrupt();
+      // Preserve the original pairwise summation order.
+      pair << std::min(i, j) + 1, std::max(i, j) + 1;
+      Eigen::MatrixXd Hij = state->model->prepare_NCV(pair).topLeftCorner(q, q);
+      coef = state->beta - (state->H - Hij).completeOrthogonalDecomposition().solve(state->score.col(i) + state->score.col(j));
+      mu(j) = std::exp(state->predict(coef, std::vector<int>{j})(0));
+    }
+  } else {
+    for(size_t v = 0; v < state->rows.size(); v++) {
+      if(state->fold[i] == static_cast<int>(v + 1)) continue;
+      Eigen::VectorXd sv = state->scorefold[v] + state->score.col(i);
+      coef = state->beta - (state->H - state->Hfold[v] - Hi).completeOrthogonalDecomposition().solve(sv);
+      Eigen::VectorXd eta = state->predict(coef, state->rows[v]);
+      for(size_t r = 0; r < state->rows[v].size(); r++) mu(state->rows[v][r]) = std::exp(eta(r));
+    }
+  }
+  Eigen::VectorXd out(n - 1);
+  out.head(i) = mu.head(i);
+  out.tail(n - i - 1) = mu.tail(n - i - 1);
+  return List::create(Named("mu") = out, Named("delta") = delta);
+}

@@ -25,6 +25,14 @@ SLaceDLNMadditive <- function(ptr, ptr_cf, verbose = FALSE, aic = FALSE, nthread
     .Call(`_aceDLNMadditive_SLaceDLNMadditive`, ptr, ptr_cf, verbose, aic, nthreads, coef_samples)
 }
 
+SLinit <- function(data, fold, cache = NULL) {
+    .Call(`_aceDLNMadditive_SLinit`, data, fold, cache)
+}
+
+SLdelete <- function(ptr, i) {
+    .Call(`_aceDLNMadditive_SLdelete`, ptr, i)
+}
+
 BsplinevecCon1st <- function(x, t, p, Z) {
     .Call(`_aceDLNMadditive_BsplinevecCon1st`, x, t, p, Z)
 }

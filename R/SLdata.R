@@ -4,8 +4,8 @@
 #' @param verbose Whether to print progress, default \code{FALSE}.
 #' @param AIC.only Used by \code{mDLNM::AICdata()} to prepare AIC quantities
 #'   without leave-two-out predictions.
-#' @param nthreads Number of threads for deletion calculations, default \code{1}.
-#'   Uses OpenMP for parallel calculation.
+#' @param nthreads Number of OpenMP threads for AIC deletion calculations,
+#'   default \code{1}. SL outer deletions use \code{SuperLearner(nworkers = ...)}.
 #' @param dat.c Counterfactual data, including the full exposure histories, on
 #'   the same predictor scale expected by \code{predict()}. It must retain the
 #'   fitted reference records and model structure. This required input defines
@@ -53,12 +53,19 @@ SLdata.aceDLNMadditive_fit <- function(object, dat.c, verbose = FALSE,
                 variance = stats::var(as.vector(result$delta.sample)), estimand = "ratio"))
   }
 
-  return(list(y = dat$y,
-              row.id = rownames(object$modeldata),
-              theta = theta,
-              mu.loo = as.vector(result$mu.loo),
-              mu.lto = result$mu.lto,
-              delta = result$delta,
-              delta.loo = as.vector(result$delta.loo),
+  result$input <- list(y = dat$y, B_inner = dat$B_inner,
+                       knots_f = dat$knots_f.list, Sw = dat$SwI_large,
+                       Sf = dat$SfI.list, Dw = dat$Dw,
+                       Xrand = dat$Xrand, Xfix = dat$Xfix,
+                       Zf = lapply(dat$SSf.list, "[[", "Zfnew"),
+                       offset = dat$offset$Xoffset, r = dat$r, K = dat$K, a = dat$a,
+                       alpha_f = point$alpha_f, phi = point$phi,
+                       log_theta = point$log_theta,
+                       log_smoothing_f = point$log_smoothing_f,
+                       log_smoothing_w = point$log_smoothing_w,
+                       betaR = point$betaR, betaF = point$betaF,
+                       log_smoothing = point$log_smoothing)
+  return(list(y = dat$y, row.id = rownames(object$modeldata), theta = theta,
+              delta = result$delta, data = result, package = "aceDLNMadditive",
               estimand = "ratio"))
 }

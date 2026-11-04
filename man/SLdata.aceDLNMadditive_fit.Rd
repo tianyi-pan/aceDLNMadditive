@@ -21,8 +21,8 @@
 \item{AIC.only}{Used by \code{mDLNM::AICdata()} to prepare AIC quantities
 without leave-two-out predictions.}
 
-\item{nthreads}{Number of threads for deletion calculations, default \code{1}.
-Uses OpenMP for parallel calculation.}
+\item{nthreads}{Number of OpenMP threads for AIC deletion calculations,
+default \code{1}. SL outer deletions use \code{SuperLearner(nworkers = ...)}.}
 
 \item{dat.c}{Counterfactual data, including the full exposure histories, on
 the same predictor scale expected by \code{predict()}. It must retain the
@@ -32,12 +32,10 @@ the intervention.}
 \item{...}{Unused; additional arguments are rejected.}
 }
 \value{
-A list of leave-one-out means (\code{mu.loo}) and leave-two-out means
-  (\code{mu.lto}), the full
-  mortality ratio, its delete-one estimates, \code{estimand = "ratio"}, and
-  observation information.
-  Rows of \code{mu.lto} identify the outer deletion and columns identify the
-  held-out outcome; its diagonal is unused.
+A list containing the full mortality ratio, observation information, and
+  serializable model preparation data for \code{mDLNM::SuperLearner()}.
+  Cross-validation predictions and delete-one estimates are calculated by
+  \code{SuperLearner()} without storing a pairwise prediction matrix.
   With \code{AIC.only = TRUE}, returns \code{aic}, \code{aic.loo}, and the
   sample \code{variance} in place of predicted means. At least two stored
   coefficient draws in \code{object$CI.sample} are required. Each ratio uses
@@ -55,5 +53,6 @@ Uses coefficient-only one-step deletion updates, with smoothing and
   sum of counterfactual means divided by the sum of baseline means, evaluated
   over the same reference records for every deletion. Counterfactual data are
   reconstructed using \code{predict()} without drawing coefficient samples.
-  Pairwise calculations require quadratic time and storage.
+  The preparation data can be transferred to parallel R workers. The fold
+  count, seed, and worker count are supplied to \code{SuperLearner()}.
 }
