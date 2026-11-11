@@ -5,7 +5,7 @@
 #' @param AIC.only Used by \code{mDLNM::AICdata()} to prepare AIC quantities
 #'   without leave-two-out predictions.
 #' @param nthreads Number of OpenMP threads for AIC deletion calculations,
-#'   default \code{1}. SL outer deletions use \code{SuperLearner(nworkers = ...)}.
+#'   default \code{1}. SL calculations use \code{SuperLearner(nthreads = ...)}.
 #' @param dat.c Counterfactual data, including the full exposure histories, on
 #'   the same predictor scale expected by \code{predict()}. It must retain the
 #'   fitted reference records and model structure. This required input defines

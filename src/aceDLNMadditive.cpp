@@ -1190,8 +1190,10 @@ List SLaceDLNMadditive(SEXP ptr, SEXP ptr_cf, bool verbose = false, bool aic = f
 
 struct SLState {
   std::unique_ptr<Model> model;
-  Eigen::VectorXd beta, mu, offset, offset_cf;
+  Eigen::VectorXd beta, mu, offset, offset_cf, delta_loo;
   Eigen::MatrixXd H, score, Xfix, Xrand, Xfix_cf, Xrand_cf, K_cf, Dw_cf;
+  Eigen::MatrixXd beta_fold_loo;
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> mu_lto;
   Eigen::VectorXd a_cf;
   std::vector<Eigen::MatrixXd> B, B_cf, Zf, Zf_cf, Hfold;
   std::vector<Eigen::VectorXd> knots, knots_cf, scorefold;
@@ -1267,7 +1269,6 @@ struct SLState {
     }
     Eigen::VectorXd eta(rows.size());
     for(size_t r = 0; r < rows.size(); r++) {
-      if(r % 1000 == 0) Rcpp::checkUserInterrupt();
       int i = rows[r];
       eta(r) = XF.row(i).dot(coef.tail(model->kbetaF)) +
         XR.row(i).dot(coef.segment(kE + kwopt, model->kbetaR)) + off(i);
@@ -1292,89 +1293,156 @@ struct SLState {
 };
 
 // [[Rcpp::export]]
-List SLinit(List data, IntegerVector fold, Rcpp::Nullable<Rcpp::List> cache = R_NilValue) {
-  Rcpp::XPtr<SLState> state(new SLState(data), true);
-  int n = state->model->n, q = state->beta.size();
-  state->fold = as<std::vector<int>>(fold);
-  if(fold.size()) {
-    int K = Rcpp::max(fold);
-    state->rows.resize(K);
-    for(int i = 0; i < n; i++) state->rows[fold[i] - 1].push_back(i);
-  }
-  if(cache.isNotNull()) {
-    List saved(cache);
-    state->mu = as<Eigen::VectorXd>(saved["mu"]);
-    state->Hfold = convertListToVectorEigenMatrixXd(saved["Hfold"]);
-    state->scorefold = convertListToVectorEigenVectorXd(saved["scorefold"]);
-  } else {
-    state->mu.resize(n);
-    if(fold.size()) {
-      for(const auto& rows : state->rows) {
-        Rcpp::checkUserInterrupt();
-        Eigen::MatrixXd Hv = Eigen::MatrixXd::Zero(q, q);
-        Eigen::VectorXd sv = Eigen::VectorXd::Zero(q), nei(1);
-        for(size_t r = 0; r < rows.size(); r++) {
-          if(r % 100 == 0) Rcpp::checkUserInterrupt();
-          nei(0) = rows[r] + 1;
-          Hv += state->model->prepare_NCV(nei).topLeftCorner(q, q);
-          sv += state->score.col(rows[r]);
-        }
-        state->Hfold.push_back(Hv);
-        state->scorefold.push_back(sv);
-        Eigen::VectorXd coef = state->beta - (state->H - Hv).completeOrthogonalDecomposition().solve(sv);
-        Eigen::VectorXd eta = state->predict(coef, rows);
-        for(size_t r = 0; r < rows.size(); r++) state->mu(rows[r]) = std::exp(eta(r));
+List SLinit(List data, IntegerVector fold, int nthreads = 1, bool verbose = false) {
+  Rcpp::XPtr<SLState> ptr(new SLState(data), true);
+  SLState& state = *ptr;
+  int n = state.model->n, q = state.beta.size();
+  state.fold = as<std::vector<int>>(fold);
+  int K = fold.size() ? Rcpp::max(fold) : 0;
+  state.mu.resize(n);
+  state.delta_loo.resize(n);
+  if(K) {
+    state.rows.resize(K);
+    for(int i = 0; i < n; i++) state.rows[fold[i] - 1].push_back(i);
+    state.beta_fold_loo.resize(q, static_cast<Eigen::Index>(n) * (K - 1));
+    for(int v = 0; v < K; v++) {
+      Rcpp::checkUserInterrupt();
+      const auto& rows = state.rows[v];
+      Eigen::MatrixXd Hv = Eigen::MatrixXd::Zero(q, q);
+      Eigen::VectorXd sv = Eigen::VectorXd::Zero(q), nei(1);
+      for(size_t r = 0; r < rows.size(); r++) {
+        if(r % 100 == 0) Rcpp::checkUserInterrupt();
+        nei(0) = rows[r] + 1;
+        Hv += state.model->prepare_NCV(nei).topLeftCorner(q, q);
+        sv += state.score.col(rows[r]);
       }
-    } else {
-      Eigen::VectorXd nei(1);
-      for(int j = 0; j < n; j++) {
-        if(j % 100 == 0) Rcpp::checkUserInterrupt();
-        nei(0) = j + 1;
-        Eigen::MatrixXd Hj = state->model->prepare_NCV(nei).topLeftCorner(q, q);
-        Eigen::VectorXd coef = state->beta - (state->H - Hj).completeOrthogonalDecomposition().solve(state->score.col(j));
-        state->mu(j) = std::exp(state->predict(coef, std::vector<int>{j})(0));
+      state.Hfold.push_back(Hv);
+      state.scorefold.push_back(sv);
+      Eigen::VectorXd coef = state.beta - (state.H - Hv).completeOrthogonalDecomposition().solve(sv);
+      Eigen::VectorXd eta = state.predict(coef, rows);
+      for(size_t r = 0; r < rows.size(); r++) state.mu(rows[r]) = std::exp(eta(r));
+    }
+  } else {
+    state.mu_lto.resize(n, n);
+    state.mu_lto.diagonal().setConstant(NA_REAL);
+  }
+
+  Rcpp::checkUserInterrupt();
+  #ifdef _OPENMP
+    #pragma omp parallel num_threads(nthreads) if(nthreads > 1)
+  #endif
+  {
+    Eigen::VectorXd nei(1), pair(2);
+    #ifdef _OPENMP
+      #pragma omp for schedule(static, 1)
+    #endif
+    for(int i = 0; i < n; i++) {
+      nei(0) = i + 1;
+      Eigen::MatrixXd Hi;
+      #ifdef _OPENMP
+        #pragma omp critical
+      #endif
+      {
+        Hi = state.model->prepare_NCV(nei).topLeftCorner(q, q);
+      }
+      Eigen::VectorXd coef = state.beta - (state.H - Hi).completeOrthogonalDecomposition().solve(state.score.col(i));
+      state.delta_loo(i) = state.ratio(coef);
+      if(K) {
+        int own = state.fold[i] - 1;
+        for(int v = 0; v < K; v++) {
+          if(v == own) continue;
+          Eigen::VectorXd sv = state.scorefold[v] + state.score.col(i);
+          Eigen::Index column = static_cast<Eigen::Index>(i) * (K - 1) + v - (v > own);
+          state.beta_fold_loo.col(column) = state.beta - (state.H - state.Hfold[v] - Hi).
+            completeOrthogonalDecomposition().solve(sv);
+        }
+      } else {
+        state.mu(i) = std::exp(state.predict(coef, std::vector<int>{i})(0));
+        for(int j = i + 1; j < n; j++) {
+          pair << i + 1, j + 1;
+          Eigen::MatrixXd Hij;
+          #ifdef _OPENMP
+            #pragma omp critical
+          #endif
+          {
+            Hij = state.model->prepare_NCV(pair).topLeftCorner(q, q);
+          }
+          Eigen::VectorXd beta = state.beta - (state.H - Hij).
+            completeOrthogonalDecomposition().solve(state.score.col(i) + state.score.col(j));
+          Eigen::VectorXd eta = state.predict(beta, std::vector<int>{i, j});
+          state.mu_lto(i, j) = std::exp(eta(1));
+          state.mu_lto(j, i) = std::exp(eta(0));
+        }
+      }
+      if(verbose && (i + 1) % 100 == 0) {
+        #ifdef _OPENMP
+          #pragma omp critical
+        #endif
+        {
+          std::cout << "Super Learner preparation " << i + 1 << " / " << n << std::endl;
+        }
       }
     }
   }
-  List saved = List::create(Named("mu") = state->mu, Named("Hfold") = state->Hfold,
-                            Named("scorefold") = state->scorefold);
-  return List::create(Named("ptr") = state, Named("mu") = state->mu,
-                      Named("delta") = state->delta, Named("cache") = saved);
+  Rcpp::checkUserInterrupt();
+  if(verbose) Rcpp::Rcout << "Super Learner preparation " << n << " / " << n << "\n";
+  return List::create(Named("ptr") = ptr, Named("mu") = state.mu,
+                      Named("delta") = state.delta);
 }
 
 // [[Rcpp::export]]
-List SLdelete(SEXP ptr, int i) {
-  Rcpp::XPtr<SLState> state(ptr);
-  int n = state->model->n, q = state->beta.size();
+List SLdelete(SEXP ptr, int i, int nthreads = 1) {
+  Rcpp::XPtr<SLState> state_ptr(ptr);
+  SLState& state = *state_ptr;
+  int n = state.model->n, q = state.beta.size(), K = state.rows.size();
   i--;
-  Eigen::VectorXd nei(1);
-  nei(0) = i + 1;
-  Eigen::MatrixXd Hi = state->model->prepare_NCV(nei).topLeftCorner(q, q);
-  Eigen::VectorXd coef = state->beta - (state->H - Hi).completeOrthogonalDecomposition().solve(state->score.col(i));
-  double delta = state->ratio(coef);
-  Eigen::VectorXd mu = state->mu;
-  if(state->fold.empty()) {
-    Eigen::VectorXd pair(2);
-    for(int j = 0; j < n; j++) {
-      if(j == i) continue;
-      if(j % 100 == 0) Rcpp::checkUserInterrupt();
-      // Preserve the original pairwise summation order.
-      pair << std::min(i, j) + 1, std::max(i, j) + 1;
-      Eigen::MatrixXd Hij = state->model->prepare_NCV(pair).topLeftCorner(q, q);
-      coef = state->beta - (state->H - Hij).completeOrthogonalDecomposition().solve(state->score.col(i) + state->score.col(j));
-      mu(j) = std::exp(state->predict(coef, std::vector<int>{j})(0));
-    }
-  } else {
-    for(size_t v = 0; v < state->rows.size(); v++) {
-      if(state->fold[i] == static_cast<int>(v + 1)) continue;
-      Eigen::VectorXd sv = state->scorefold[v] + state->score.col(i);
-      coef = state->beta - (state->H - state->Hfold[v] - Hi).completeOrthogonalDecomposition().solve(sv);
-      Eigen::VectorXd eta = state->predict(coef, state->rows[v]);
-      for(size_t r = 0; r < state->rows[v].size(); r++) mu(state->rows[v][r]) = std::exp(eta(r));
+  Eigen::VectorXd mu(n - 1);
+  Rcpp::checkUserInterrupt();
+  if(K == 0) {
+    mu.head(i) = state.mu_lto.row(i).head(i).transpose();
+    mu.tail(n - i - 1) = state.mu_lto.row(i).tail(n - i - 1).transpose();
+    return List::create(Named("mu") = mu, Named("delta") = state.delta_loo(i));
+  }
+
+  Eigen::MatrixXd coef(q, K), alpha_w(state.model->kw, K);
+  int own = state.fold[i] - 1;
+  for(int v = 0; v < K; v++) {
+    if(v == own) continue;
+    Eigen::Index column = static_cast<Eigen::Index>(i) * (K - 1) + v - (v > own);
+    coef.col(v) = state.beta_fold_loo.col(column);
+    Eigen::VectorXd phiKa = state.model->K * coef.col(v).segment(state.model->kE, state.model->kwopt) + state.model->a;
+    for(int m = 0; m < state.model->M; m++) {
+      Eigen::VectorXd wl(state.model->kwp);
+      wl(0) = 1.0;
+      wl.tail(state.model->kwp - 1) = phiKa.segment(m * (state.model->kwp - 1), state.model->kwp - 1);
+      alpha_w.col(v).segment(m * state.model->kwp, state.model->kwp) = wl / sqrt(wl.dot(state.model->Dw * wl));
     }
   }
-  Eigen::VectorXd out(n - 1);
-  out.head(i) = mu.head(i);
-  out.tail(n - i - 1) = mu.tail(n - i - 1);
-  return List::create(Named("mu") = out, Named("delta") = delta);
+  #ifdef _OPENMP
+    #pragma omp parallel num_threads(nthreads) if(nthreads > 1)
+  #endif
+  {
+    #ifdef _OPENMP
+      #pragma omp for schedule(static)
+    #endif
+    for(int j = 0; j < n; j++) {
+      if(j == i) continue;
+      int out = j - (j > i);
+      int v = state.fold[j] - 1;
+      if(state.fold[j] == state.fold[i]) {
+        mu(out) = state.mu(j);
+        continue;
+      }
+      double eta = state.Xfix.row(j).dot(coef.col(v).tail(state.model->kbetaF)) +
+        state.Xrand.row(j).dot(coef.col(v).segment(state.model->kE + state.model->kwopt, state.model->kbetaR)) + state.offset(j);
+      for(int m = 0; m < state.model->M; m++) {
+        double E = state.B.at(m).row(j).dot(alpha_w.col(v).segment(m * state.model->kwp, state.model->kwp));
+        eta += BsplinevecCon(E, state.knots.at(m), 4, state.Zf.at(m)).dot(
+          coef.col(v).segment(m * state.model->kEp, state.model->kEp));
+      }
+      mu(out) = std::exp(eta);
+    }
+  }
+  Rcpp::checkUserInterrupt();
+  return List::create(Named("mu") = mu, Named("delta") = state.delta_loo(i));
 }

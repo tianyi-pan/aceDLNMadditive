@@ -22,7 +22,7 @@
 without leave-two-out predictions.}
 
 \item{nthreads}{Number of OpenMP threads for AIC deletion calculations,
-default \code{1}. SL outer deletions use \code{SuperLearner(nworkers = ...)}.}
+default \code{1}. SL calculations use \code{SuperLearner(nthreads = ...)}.}
 
 \item{dat.c}{Counterfactual data, including the full exposure histories, on
 the same predictor scale expected by \code{predict()}. It must retain the
@@ -53,6 +53,8 @@ Uses coefficient-only one-step deletion updates, with smoothing and
   sum of counterfactual means divided by the sum of baseline means, evaluated
   over the same reference records for every deletion. Counterfactual data are
   reconstructed using \code{predict()} without drawing coefficient samples.
-  The preparation data can be transferred to parallel R workers. The fold
-  count, seed, and worker count are supplied to \code{SuperLearner()}.
+  The fold count, seed, and OpenMP thread count are supplied to
+  \code{SuperLearner()}. K-fold coefficient updates are stored in C++ and
+  predictions are generated for one outer deletion at a time. With
+  \code{K = NULL}, leave-two-out predictions are instead cached in C++.
 }
